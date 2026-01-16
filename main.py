@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import shutil
+import re
 import yt_dlp
 from datetime import datetime
 
@@ -17,40 +18,26 @@ def setup_environment():
     """Ensures data directory exists."""
     os.makedirs(DATA_DIR, exist_ok=True)
 
-def migrate_state(source_url):
-    """Migrates old state.txt to state.json if it exists."""
+def load_legacy_state(source_url):
+    """Reads old state.txt and returns the ID if it exists."""
     if os.path.exists(OLD_STATE_FILE):
         try:
             with open(OLD_STATE_FILE, 'r') as f:
                 content = f.read().strip()
-
-            # Assuming old state file contained just the ID
-            initial_state = {}
             if content:
-                 initial_state[source_url] = content
-
-            # If state.json exists, we merge, otherwise we create
-            current_state = {}
-            if os.path.exists(STATE_FILE):
-                try:
-                    with open(STATE_FILE, 'r') as f:
-                        current_state = json.load(f)
-                except json.JSONDecodeError:
-                    pass
-
-            # Update current state with old state info if not present
-            if source_url not in current_state and content:
-                current_state[source_url] = content
-
-            with open(STATE_FILE, 'w') as f:
-                json.dump(current_state, f, indent=4)
-
-            # Archive old file
-            shutil.move(OLD_STATE_FILE, OLD_STATE_FILE + '.bak')
-            print(f"Migrated {OLD_STATE_FILE} to {STATE_FILE}")
-
+                return content
         except Exception as e:
-            print(f"Error migrating state file: {e}")
+            print(f"Error reading legacy state file: {e}")
+    return None
+
+def archive_legacy_state():
+    """Archives the legacy state file."""
+    if os.path.exists(OLD_STATE_FILE):
+         try:
+            shutil.move(OLD_STATE_FILE, OLD_STATE_FILE + '.bak')
+            print(f"Archived {OLD_STATE_FILE}")
+         except Exception as e:
+            print(f"Error archiving legacy state: {e}")
 
 def load_json(filepath, default=None):
     if default is None:
@@ -78,21 +65,9 @@ def validate_data(data):
             return False
     return True
 
-def get_latest_id(url):
-    ydl_opts = {
-        'extract_flat': True,
-        'playlist_items': '1',
-        'quiet': True,
-        'ignoreerrors': True,
-        'user_agent': USER_AGENT,
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        if 'entries' in info and info['entries']:
-            return info['entries'][0].get('id')
-        elif 'id' in info:
-            return info['id']
-    return None
+def clean_url(line):
+    """Strips < > and whitespace from the URL line."""
+    return re.sub(r'[<>]', '', line).strip()
 
 def fetch_items(url, limit=3):
     ydl_opts = {
@@ -114,7 +89,7 @@ def fetch_items(url, limit=3):
                 entries = [info]
 
             for entry in entries:
-                if entry is None: continue # ignoreerrors=True can produce Nones
+                if entry is None: continue
                 items.append(entry)
         except Exception as e:
             print(f"Error fetching items: {e}")
@@ -183,31 +158,42 @@ def main():
         print("No sources found")
         sys.exit(1)
 
-    source_url = lines[0] # Single source check
+    source_url = clean_url(lines[0])
 
-    # 2. Migration
-    migrate_state(source_url)
-
-    # 3. Load State
+    # 2. Load State & Handle Migration Logic (InMemory)
     state = load_json(STATE_FILE, default={})
     last_id = state.get(source_url)
 
-    # 4. Delta Check
-    try:
-        current_latest_id = get_latest_id(source_url)
-    except Exception as e:
-        print(f"Error checking source: {e}")
-        sys.exit(1)
+    legacy_id = load_legacy_state(source_url)
+    # If we have a legacy ID and no current ID for this source, use legacy
+    if legacy_id and not last_id:
+        last_id = legacy_id
+
+    # 3. Efficiency: Fetch Items & Delta Check combined
+    raw_items = fetch_items(source_url, limit=3)
+
+    if not raw_items:
+        print("No items found.")
+        sys.exit(0)
+
+    latest_item = raw_items[0]
+    current_latest_id = latest_item.get('id')
 
     if current_latest_id == last_id and last_id is not None:
         print('Database is up to date')
+        # Ensure migration is saved if we relied on legacy_id
+        if legacy_id and source_url not in state:
+             state[source_url] = legacy_id
+             try:
+                 save_json(STATE_FILE, state)
+                 archive_legacy_state()
+             except Exception:
+                 pass
         sys.exit(0)
 
-    # 5. Robust Extraction
+    # 5. Robust Extraction & Processing
     new_items_count = 0
     metadata_only_count = 0
-
-    raw_items = fetch_items(source_url, limit=3)
 
     # Load existing metadata for deduplication
     metadata = load_json(METADATA_FILE, default=[])
@@ -237,25 +223,32 @@ def main():
             print(f"Error processing item: {e}")
             continue
 
-    # 6. Database Logic
+    # 6. Validation on items_to_add (Before merging)
+    if not validate_data(items_to_add):
+        print("Error: Validation failed on new items. Aborting save.")
+        sys.exit(1)
+
+    # 7. Database Merge
     # Add new items to the top
     final_metadata = items_to_add + metadata
 
     # Keep only top 100
     final_metadata = final_metadata[:100]
 
-    # 8. Validation (Moved before save)
-    if not validate_data(final_metadata):
-        print("Error: Validation failed. Aborting save.")
-        sys.exit(1)
-
     # Update State
     if current_latest_id:
         state[source_url] = current_latest_id
 
-    # 7. Save
-    save_json(METADATA_FILE, final_metadata)
-    save_json(STATE_FILE, state)
+    # 8. Save
+    try:
+        save_json(METADATA_FILE, final_metadata)
+        save_json(STATE_FILE, state)
+        # Migration Safety: Only run archive if save succeeds
+        if legacy_id:
+             archive_legacy_state()
+    except Exception as e:
+        print(f"Error saving data: {e}")
+        sys.exit(1)
 
     # 9. Output
     print(f"Success: {new_items_count} new items added. Metadata-only: {metadata_only_count}. Total database size: {len(final_metadata)}.")
