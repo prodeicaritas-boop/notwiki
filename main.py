@@ -12,6 +12,7 @@ STATE_FILE = os.path.join(DATA_DIR, 'state.json')
 OLD_STATE_FILE = os.path.join(DATA_DIR, 'state.txt')
 SOURCES_FILE = 'sources.txt'
 
+# Standard browser User-Agent
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 
 def setup_environment():
@@ -50,10 +51,6 @@ def load_json(filepath, default=None):
     except json.JSONDecodeError:
         return default
 
-def save_json(filepath, data):
-    with open(filepath, 'w') as f:
-        json.dump(data, f, indent=4)
-
 def validate_data(data):
     """Confirms data is a valid list of dictionaries."""
     if not isinstance(data, list):
@@ -65,9 +62,29 @@ def validate_data(data):
             return False
     return True
 
-def clean_url(line):
-    """Strips < > and whitespace from the URL line."""
-    return re.sub(r'[<>]', '', line).strip()
+def save_json_atomic(filepath, data):
+    """Writes data to a temp file, then atomically renames it."""
+    tmp_filepath = filepath + '.tmp'
+    try:
+        with open(tmp_filepath, 'w') as f:
+            json.dump(data, f, indent=4)
+        os.replace(tmp_filepath, filepath)
+    except Exception as e:
+        print(f"Error saving JSON to {filepath}: {e}")
+        if os.path.exists(tmp_filepath):
+            os.remove(tmp_filepath)
+        raise e
+
+def extract_url(line):
+    """Extracts the first URL starting with http from the line."""
+    match = re.search(r'(http\S+)', line)
+    if match:
+        # Strip any trailing characters that might be part of tags like > or " or '
+        url = match.group(1)
+        # Basic cleanup if regex grabbed a trailing >
+        url = url.rstrip('>"\'')
+        return url
+    return None
 
 def fetch_items(url, limit=3):
     ydl_opts = {
@@ -96,37 +113,45 @@ def fetch_items(url, limit=3):
 
     return items
 
+def get_current_date_formatted():
+    return datetime.now().strftime('%B %d, %Y')
+
 def format_date(date_str):
-    """Converts YYYYMMDD to Month Day, Year."""
+    """Converts YYYYMMDD to Month Day, Year. Fallback to current date."""
     if not date_str or date_str == 'N/A':
-        return 'N/A'
+        return get_current_date_formatted()
     try:
         dt = datetime.strptime(date_str, '%Y%m%d')
         return dt.strftime('%B %d, %Y')
     except ValueError:
-        return date_str
+        # Malformed date string, fallback to current date as requested
+        return get_current_date_formatted()
 
 def process_item(entry):
-    """Extracts relevant fields with fallback logic."""
+    """Extracts relevant fields with smart fallback logic."""
     title = entry.get('title', 'N/A')
 
+    # Description Fallback: Use Title if missing
+    description = entry.get('description')
+    if not description or description == 'N/A':
+        description = title
+
     # Truncate description to 160 characters
-    description = entry.get('description', 'N/A')
-    if description and description != 'N/A' and len(description) > 160:
+    if len(description) > 160:
         description = description[:160]
 
     webpage_url = entry.get('webpage_url', entry.get('url', 'N/A'))
 
-    # Handle thumbnails - extract_flat might return a list of dicts or nothing
+    # Handle thumbnails
     thumbnail = 'N/A'
     thumbnails = entry.get('thumbnails')
     if thumbnails and isinstance(thumbnails, list) and len(thumbnails) > 0:
-        # Try to get the last one (usually highest quality) or just the first
         thumbnail = thumbnails[-1].get('url', 'N/A')
     elif entry.get('thumbnail'):
         thumbnail = entry.get('thumbnail')
 
-    upload_date = entry.get('upload_date', 'N/A')
+    # Date Fallback: Use Current Date if missing
+    upload_date = entry.get('upload_date')
     formatted_date = format_date(upload_date)
 
     # Metadata only check: if url or thumbnail is missing/NA
@@ -152,15 +177,21 @@ def main():
         sys.exit(1)
 
     with open(SOURCES_FILE, 'r') as f:
-        lines = [l.strip() for l in f if l.strip()]
+        # Read lines and try to extract valid URL
+        lines = f.readlines()
 
-    if not lines:
-        print("No sources found")
+    source_url = None
+    for line in lines:
+        extracted = extract_url(line)
+        if extracted:
+            source_url = extracted
+            break
+
+    if not source_url:
+        print("No valid sources found")
         sys.exit(1)
 
-    source_url = clean_url(lines[0])
-
-    # 2. Load State & Handle Migration Logic (InMemory)
+    # 2. Load State (Memory Only)
     state = load_json(STATE_FILE, default={})
     last_id = state.get(source_url)
 
@@ -174,6 +205,13 @@ def main():
 
     if not raw_items:
         print("No items found.")
+        # Even if no items found, if we loaded legacy state, we should probably migrate it?
+        # The prompt says: "If the ID matches state.json, print 'No new content' and exit."
+        # It also says: "Migration Integrity: Do not rename state.txt to .bak until the very end of a successful script execution."
+        # If we exit here, we technically successfully ran, just found no content.
+        # But we haven't 'saved' anything.
+        # However, if we just migrated in memory, we might want to save the new state file so next time we don't rely on legacy?
+        # Let's be safe: If no items, we can't verify ID, so we just exit.
         sys.exit(0)
 
     latest_item = raw_items[0]
@@ -181,11 +219,11 @@ def main():
 
     if current_latest_id == last_id and last_id is not None:
         print('Database is up to date')
-        # Ensure migration is saved if we relied on legacy_id
+        # If we used legacy_id to match, we should persist this migration
         if legacy_id and source_url not in state:
              state[source_url] = legacy_id
              try:
-                 save_json(STATE_FILE, state)
+                 save_json_atomic(STATE_FILE, state)
                  archive_legacy_state()
              except Exception:
                  pass
@@ -223,29 +261,31 @@ def main():
             print(f"Error processing item: {e}")
             continue
 
-    # 6. Validation on items_to_add (Before merging)
-    if not validate_data(items_to_add):
-        print("Error: Validation failed on new items. Aborting save.")
-        sys.exit(1)
-
-    # 7. Database Merge
-    # Add new items to the top
+    # 6. Database Merge
     final_metadata = items_to_add + metadata
 
     # Keep only top 100
     final_metadata = final_metadata[:100]
 
+    # Validation on Final Metadata before saving (Atomic Safety)
+    if not validate_data(final_metadata):
+        print("Error: Validation failed on final data. Aborting save.")
+        sys.exit(1)
+
     # Update State
     if current_latest_id:
         state[source_url] = current_latest_id
 
-    # 8. Save
+    # 7. Atomic Save
     try:
-        save_json(METADATA_FILE, final_metadata)
-        save_json(STATE_FILE, state)
-        # Migration Safety: Only run archive if save succeeds
+        save_json_atomic(METADATA_FILE, final_metadata)
+        save_json_atomic(STATE_FILE, state)
+
+        # 8. Migration Integrity
+        # Only archive if everything else succeeded
         if legacy_id:
              archive_legacy_state()
+
     except Exception as e:
         print(f"Error saving data: {e}")
         sys.exit(1)
