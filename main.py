@@ -3,6 +3,7 @@ import sys
 import json
 import shutil
 import yt_dlp
+from datetime import datetime
 
 DATA_DIR = 'data'
 METADATA_FILE = os.path.join(DATA_DIR, 'metadata.json')
@@ -66,21 +67,16 @@ def save_json(filepath, data):
     with open(filepath, 'w') as f:
         json.dump(data, f, indent=4)
 
-def validate_json():
-    """Confirms metadata.json is a valid list of dictionaries."""
-    try:
-        data = load_json(METADATA_FILE)
-        if not isinstance(data, list):
-            print("Error: metadata.json is not a list.")
-            return False
-        for item in data:
-            if not isinstance(item, dict):
-                print("Error: metadata.json contains non-dict items.")
-                return False
-        return True
-    except Exception as e:
-        print(f"Error validating metadata.json: {e}")
+def validate_data(data):
+    """Confirms data is a valid list of dictionaries."""
+    if not isinstance(data, list):
+        print("Error: Data is not a list.")
         return False
+    for item in data:
+        if not isinstance(item, dict):
+            print("Error: Data contains non-dict items.")
+            return False
+    return True
 
 def get_latest_id(url):
     ydl_opts = {
@@ -100,7 +96,7 @@ def get_latest_id(url):
 
 def fetch_items(url, limit=3):
     ydl_opts = {
-        'extract_flat': False, # We use extract_flat=False to get metadata
+        'extract_flat': True, # Performance optimization
         'playlist_items': f'1-{limit}',
         'quiet': True,
         'ignoreerrors': True,
@@ -125,28 +121,50 @@ def fetch_items(url, limit=3):
 
     return items
 
+def format_date(date_str):
+    """Converts YYYYMMDD to Month Day, Year."""
+    if not date_str or date_str == 'N/A':
+        return 'N/A'
+    try:
+        dt = datetime.strptime(date_str, '%Y%m%d')
+        return dt.strftime('%B %d, %Y')
+    except ValueError:
+        return date_str
+
 def process_item(entry):
     """Extracts relevant fields with fallback logic."""
     title = entry.get('title', 'N/A')
-    description = entry.get('description', 'N/A')
-    webpage_url = entry.get('webpage_url', entry.get('url', 'N/A'))
-    thumbnail = entry.get('thumbnail', 'N/A')
-    upload_date = entry.get('upload_date', 'N/A')
 
-    # Metadata only check: if url or thumbnail is missing/NA (or maybe just empty)
+    # Truncate description to 160 characters
+    description = entry.get('description', 'N/A')
+    if description and description != 'N/A' and len(description) > 160:
+        description = description[:160]
+
+    webpage_url = entry.get('webpage_url', entry.get('url', 'N/A'))
+
+    # Handle thumbnails - extract_flat might return a list of dicts or nothing
+    thumbnail = 'N/A'
+    thumbnails = entry.get('thumbnails')
+    if thumbnails and isinstance(thumbnails, list) and len(thumbnails) > 0:
+        # Try to get the last one (usually highest quality) or just the first
+        thumbnail = thumbnails[-1].get('url', 'N/A')
+    elif entry.get('thumbnail'):
+        thumbnail = entry.get('thumbnail')
+
+    upload_date = entry.get('upload_date', 'N/A')
+    formatted_date = format_date(upload_date)
+
+    # Metadata only check: if url or thumbnail is missing/NA
     is_metadata_only = False
     if thumbnail == 'N/A' or webpage_url == 'N/A':
         is_metadata_only = True
-
-    # Per requirements: "If a video or photo URL is missing, do not skip the item. Save the title, description, and page_url anyway. Mark missing media as "N/A"."
-    # So we normalize the missing ones to "N/A" (already done above with .get default)
 
     return {
         'title': title,
         'description': description,
         'url': webpage_url,
         'thumbnail': thumbnail,
-        'upload_date': upload_date,
+        'upload_date': formatted_date,
         'id': entry.get('id')
     }, is_metadata_only
 
@@ -221,25 +239,26 @@ def main():
 
     # 6. Database Logic
     # Add new items to the top
-    metadata = items_to_add + metadata
+    final_metadata = items_to_add + metadata
 
     # Keep only top 100
-    metadata = metadata[:100]
+    final_metadata = final_metadata[:100]
+
+    # 8. Validation (Moved before save)
+    if not validate_data(final_metadata):
+        print("Error: Validation failed. Aborting save.")
+        sys.exit(1)
 
     # Update State
     if current_latest_id:
         state[source_url] = current_latest_id
 
     # 7. Save
-    save_json(METADATA_FILE, metadata)
+    save_json(METADATA_FILE, final_metadata)
     save_json(STATE_FILE, state)
 
-    # 8. Validation
-    if not validate_json():
-        print("Warning: Database validation failed.")
-
     # 9. Output
-    print(f"Success: {new_items_count} new items added. Metadata-only: {metadata_only_count}. Total database size: {len(metadata)}.")
+    print(f"Success: {new_items_count} new items added. Metadata-only: {metadata_only_count}. Total database size: {len(final_metadata)}.")
 
 if __name__ == "__main__":
     main()
