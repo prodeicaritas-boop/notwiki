@@ -22,10 +22,14 @@ def safe_get_text(element, selector, default='N/A'):
 def atomic_save(data, filepath):
     """
     Saves data to a temporary file and then atomically moves it to the target filepath.
-    Only saves if data is a valid list.
+    Only saves if data is a valid list of dictionaries.
     """
     if not isinstance(data, list):
-        print("Error: Data is not a valid list. Skipping save.")
+        print("Error: Data is not a list. Skipping save.")
+        return
+
+    if not all(isinstance(item, dict) for item in data):
+        print("Error: Data contains non-dictionary items. Skipping save.")
         return
 
     temp_filepath = filepath + '.tmp'
@@ -42,6 +46,9 @@ def atomic_save(data, filepath):
             os.remove(temp_filepath)
 
 def main():
+    # Environment Safety
+    os.makedirs('data', exist_ok=True)
+
     # Initialize/Load Metadata
     if os.path.exists(METADATA_FILE):
         try:
@@ -91,55 +98,30 @@ def main():
             items = soup.select('tr.athing')
 
             for item in items:
-                # Extract Title & URL
-                # HN structure: <span class="titleline"><a href="...">Title</a>...</span>
-                # We need to be careful with selectors.
-                # safe_get_text can get title text.
-                # But we need the <a> tag for href.
+                # Use safe_get_text for title
+                # HN titles are in .titleline > a (new) or .title > a (old)
+                # We prioritize the new selector
+                title = safe_get_text(item, '.titleline a', default=None)
+                if not title:
+                     title = safe_get_text(item, '.title a', default='Untitled')
 
-                # Finding the link anchor
-                # Try generic selectors often found in tr.athing or specifically for HN
-                # The user said "safe_get_text... found = element.select_one(selector)"
-
-                # In tr.athing (HN), the title is in 'span.titleline > a' or just '.title > a' (old HN).
-                # Let's try '.titleline a' (modern HN) or fallback to finding the first anchor.
-
-                link_tag = item.select_one('.titleline a')
-                if not link_tag:
-                     # Fallback for older HN markup or if structure differs
-                     link_tag = item.select_one('.title a')
-
-                if not link_tag:
+                # Manual extraction for href since we need the attribute
+                link_tag = item.select_one('.titleline a') or item.select_one('.title a')
+                if not link_tag or not link_tag.get('href'):
                     continue
 
-                title = link_tag.get_text(strip=True)
                 href = link_tag.get('href')
-
-                if not href or not title:
-                    continue
-
                 abs_url = urljoin(url, href)
 
                 if abs_url in seen_urls:
                     continue
 
-                # Description & Thumbnail
-                # HN doesn't have these in tr.athing.
-                # Per instructions: description fallback to title, thumbnail fallback to 'N/A'.
-                # Unique Metadata logic from previous prompt: "If description matches title exactly, save as empty string"?
-                # The latest prompt said: "Initial Setup: ... Target containers = tr.athing."
-                # It didn't explicitly repeat the "empty string if match" rule, but it's a good practice and was requested previously.
-                # However, the latest prompt says "Generate ... using this corrected logic" and lists specific points.
-                # Point 4 says "Safe Extraction Helper".
-                # It doesn't mention the empty string optimization.
-                # But it says "description (fallback to title)".
-                # I will stick to "fallback to title" as per the new simplified instructions.
-                # Wait, strictly: "description: Meta description or first paragraph (truncate to 160 chars; fallback to title)" was in the OLD plan.
-                # New simplified blueprint doesn't specify *how* to extract description, just "Target containers = tr.athing".
-                # If I target `tr.athing`, I can't get meta description of the page (that's per item).
-                # So description IS title.
-
+                # Description & Truncation
+                # Fallback to title as per instructions for HN structure
                 description = title
+                if len(description) > 160:
+                    description = description[:160]
+
                 thumbnail = 'N/A'
                 upload_date = datetime.now().strftime('%B %d, %Y')
 
