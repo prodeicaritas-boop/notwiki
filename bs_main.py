@@ -28,8 +28,8 @@ def atomic_save(data, filepath):
         print("Error: Data is not a list. Skipping save.")
         return
 
-    if not all(isinstance(item, dict) for item in data):
-        print("Error: Data contains non-dictionary items. Skipping save.")
+    if data and not isinstance(data[0], dict):
+        print("Error: Data content is not dictionary. Skipping save.")
         return
 
     temp_filepath = filepath + '.tmp'
@@ -46,7 +46,7 @@ def atomic_save(data, filepath):
             os.remove(temp_filepath)
 
 def main():
-    # Environment Safety
+    # 1. URL & Environment Prep
     os.makedirs('data', exist_ok=True)
 
     # Initialize/Load Metadata
@@ -61,7 +61,7 @@ def main():
     else:
         current_data = []
 
-    # Create seen_urls set for deduplication
+    # High-Efficiency Delta Loop: Set for O(1) lookups
     seen_urls = {item.get('url') for item in current_data if item.get('url')}
 
     new_items = []
@@ -80,7 +80,7 @@ def main():
     })
 
     for line in sources:
-        # Regex to find URL
+        # Regex extraction
         match = re.search(r'(http\S+)', line)
         if not match:
             continue
@@ -94,81 +94,81 @@ def main():
 
             soup = BeautifulSoup(response.content, 'lxml')
 
-            # Generic Fallback Strategy
-            items = soup.select('tr.athing')
+            # 2. Smart Global Metadata (Global Thumbnail)
+            global_thumbnail = 'N/A'
+            og_image = soup.select_one('meta[property="og:image"]') or \
+                       soup.select_one('meta[name="twitter:image"]')
+            if og_image and og_image.get('content'):
+                global_thumbnail = urljoin(url, og_image.get('content'))
+
+            # 5. Universal Containers
+            container_selectors = ['tr.athing', 'article', 'div.post', '.item', 'li']
+            items = []
+            for selector in container_selectors:
+                items = soup.select(selector)
+                if items:
+                    break
+
             if not items:
-                items = soup.select('article')
-            if not items:
-                items = soup.select('div.post')
+                print(f"No items found for {url} with generic selectors.")
+                continue
+
+            consecutive_dupes = 0
 
             for item in items:
-                # Title Extraction
-                # Try HN specific then generic
-                # We need both the text (title) and the href.
-                # safe_get_text gets text, but we also need the element for href.
-                # To keep it clean and use safe_get_text as requested for text,
-                # we will find the element first.
-
+                # Extraction
+                # Try to find a link
                 link_tag = item.select_one('.titleline a') or \
                            item.select_one('.title a') or \
+                           item.select_one('h1 a') or \
+                           item.select_one('h2 a') or \
                            item.select_one('a')
 
                 if not link_tag or not link_tag.get('href'):
                     continue
 
-                # Use helper for title text as requested
-                # Since we found the tag, we can just get text, but to strictly follow "Use your safe_get_text helper",
-                # we can pass the item and the selector again, or pass the link_tag and match itself?
-                # safe_get_text(link_tag, '')? selector is required.
-                # Let's rely on finding the text via the helper from the *item* using the selector that found the tag.
-                # But we have multiple selectors.
-                # A cleaner way: use safe_get_text on the 'item' with the specific selector we found worked?
-                # Or just accept that for Title (which is coupled with Href), we extract text directly?
-                # The user instruction: "Use your safe_get_text helper for all text extractions".
-                # I will try to use it.
-
-                if item.select_one('.titleline a'):
-                    title = safe_get_text(item, '.titleline a')
-                elif item.select_one('.title a'):
-                    title = safe_get_text(item, '.title a')
-                else:
-                    title = safe_get_text(item, 'a')
-
-                if not title or title == 'N/A':
-                    title = 'Untitled'
-
                 href = link_tag.get('href')
                 abs_url = urljoin(url, href)
 
+                # Delta Check & Stop-Gate
                 if abs_url in seen_urls:
+                    consecutive_dupes += 1
+                    if consecutive_dupes >= 5:
+                        print(f"Hit 5 consecutive duplicates for {url}. Breaking.")
+                        break
                     continue
+                else:
+                    consecutive_dupes = 0
 
-                # Thumbnail Extraction
-                # Look for og:image (meta) or img tag within item
-                thumbnail = 'N/A'
-                # Check for og:image meta tag inside the item
+                # Title
+                title = link_tag.get_text(strip=True)
+                if not title:
+                     title = 'Untitled'
+
+                # Thumbnail extraction
+                thumbnail = global_thumbnail # Fallback
+                # Item specific check
                 meta_img = item.select_one('meta[property="og:image"]')
                 if meta_img and meta_img.get('content'):
                     thumbnail = urljoin(url, meta_img.get('content'))
                 else:
-                    # Check for first img tag
                     img_tag = item.select_one('img')
                     if img_tag and img_tag.get('src'):
                         thumbnail = urljoin(url, img_tag.get('src'))
 
-                # Description Extraction & Deduplication
-                # Try generic paragraph
+                # Description extraction
                 description = safe_get_text(item, 'p', default='')
-
-                # Fallback to title if empty (as per "fallback to title")
                 if not description:
-                    description = title
+                     # Attempt to find text inside the container if it's an article/div
+                     # But safe_get_text requires selector.
+                     # If 'p' failed, maybe just text limit?
+                     # Fallback to title as per instructions
+                     description = title
 
-                # Deduplication logic: "If ... empty or identical to the title, save it as an empty string"
+                # Space-Saving
                 if description == title or not description:
                     description = ""
 
-                # Truncate
                 if len(description) > 160:
                     description = description[:160]
 
@@ -186,7 +186,6 @@ def main():
                 seen_urls.add(abs_url)
 
         except Exception as e:
-            # Fault-tolerant loop: Log error and continue
             print(f"Error processing {url}: {e}")
             continue
 
@@ -196,7 +195,7 @@ def main():
         final_data = new_items + current_data
         # Limit to 100
         final_data = final_data[:100]
-        # Save
+        # Atomic Save
         atomic_save(final_data, METADATA_FILE)
     else:
         print("No new items found.")
