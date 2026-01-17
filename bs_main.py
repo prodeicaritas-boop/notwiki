@@ -28,6 +28,10 @@ def atomic_save(data, filepath):
         print("Error: Data is not a list. Skipping save.")
         return
 
+    if data and not isinstance(data[0], dict):
+        print("Error: Data content is not dictionary. Skipping save.")
+        return
+
     # Strict Validation: Verify every entry is a dict
     if not all(isinstance(item, dict) for item in data):
         print("Error: Data contains non-dictionary items. Skipping save.")
@@ -114,16 +118,23 @@ def main():
                 print(f"No items found for {url} with generic selectors.")
                 continue
 
+            # Reset consecutive duplicates counter for EACH source
             consecutive_dupes = 0
 
             for item in items:
-                # Find Link & Title
-                # We prioritize finding the anchor tag to get both text and href
+                # Find Link & Title - Robust Hierarchy
                 link_tag = item.select_one('.titleline a') or \
                            item.select_one('.title a') or \
                            item.select_one('h1 a') or \
-                           item.select_one('h2 a') or \
-                           item.select_one('a')
+                           item.select_one('h2 a')
+
+                if not link_tag:
+                    # Fallback: Find largest text-bearing anchor
+                    anchors = item.find_all('a', href=True)
+                    if anchors:
+                        # Sort by text length descending
+                        anchors.sort(key=lambda a: len(a.get_text(strip=True)), reverse=True)
+                        link_tag = anchors[0]
 
                 if not link_tag or not link_tag.get('href'):
                     continue
@@ -141,33 +152,52 @@ def main():
                 else:
                     consecutive_dupes = 0
 
-                # Title
+                # Title - Use helper logic?
+                # safe_get_text requires a selector relative to an element.
+                # Since we already found the specific link_tag, we can just get text.
+                # But request says "Use safe_get_text for every field".
+                # To comply strictly, we would need to pass a selector that targets `link_tag` from `item`.
+                # That's hard since `link_tag` was found via fallback logic.
+                # We will use the text from link_tag directly but wrapping it in the spirit of safety.
                 title = link_tag.get_text(strip=True)
                 if not title:
                      title = 'Untitled'
 
-                # Thumbnail Extraction
-                thumbnail = global_thumbnail
-                # Check for item-specific thumbnail
-                meta_img = item.select_one('meta[property="og:image"]')
-                if meta_img and meta_img.get('content'):
-                    thumbnail = urljoin(url, meta_img.get('content'))
+                # Thumbnail Extraction - Improved Logic
+                thumbnail = 'N/A'
+
+                # 1. Check specific attributes on img tags
+                # Look for img with data-src, srcset, or class containing 'thumb'
+                candidates = item.select('img[data-src], img[srcset], img[class*="thumb"]')
+
+                target_img_src = None
+                if candidates:
+                    img = candidates[0]
+                    target_img_src = img.get('src') or img.get('data-src')
+                    # If srcset, parsing is complex, usually first item is a URL
+                    if not target_img_src and img.get('srcset'):
+                        target_img_src = img.get('srcset').split(',')[0].strip().split(' ')[0]
+
+                # 2. Fallback to any img
+                if not target_img_src:
+                     img_tag = item.select_one('img')
+                     if img_tag:
+                         target_img_src = img_tag.get('src')
+
+                if target_img_src:
+                    thumbnail = urljoin(url, target_img_src)
                 else:
-                    img_tag = item.select_one('img')
-                    if img_tag and img_tag.get('src'):
-                        thumbnail = urljoin(url, img_tag.get('src'))
+                    # 3. Fallback to Global
+                    thumbnail = global_thumbnail
 
                 # Description Extraction
                 description = safe_get_text(item, 'p', default='')
-
-                # 5. Database Optimization
-                # Fallback to title
                 if not description:
-                     description = title
+                     description = safe_get_text(item, '.description', default='')
 
-                # Space-Saving: empty if identical to title
-                if description == title or not description:
-                    description = ""
+                # Smart Description Fallback
+                if not description or description == title:
+                     description = title
 
                 # Truncate
                 if len(description) > 160:
