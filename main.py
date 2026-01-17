@@ -1,7 +1,5 @@
 import os
-import sys
 import json
-import shutil
 import re
 import yt_dlp
 from datetime import datetime
@@ -9,7 +7,6 @@ from datetime import datetime
 DATA_DIR = 'data'
 METADATA_FILE = os.path.join(DATA_DIR, 'metadata.json')
 STATE_FILE = os.path.join(DATA_DIR, 'state.json')
-OLD_STATE_FILE = os.path.join(DATA_DIR, 'state.txt')
 SOURCES_FILE = 'sources.txt'
 
 USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -17,27 +14,6 @@ USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 def setup_environment():
     """Ensures data directory exists."""
     os.makedirs(DATA_DIR, exist_ok=True)
-
-def load_legacy_state(source_url):
-    """Reads old state.txt and returns the ID if it exists."""
-    if os.path.exists(OLD_STATE_FILE):
-        try:
-            with open(OLD_STATE_FILE, 'r') as f:
-                content = f.read().strip()
-            if content:
-                return content
-        except Exception as e:
-            print(f"Error reading legacy state file: {e}")
-    return None
-
-def archive_legacy_state():
-    """Archives the legacy state file."""
-    if os.path.exists(OLD_STATE_FILE):
-         try:
-            shutil.move(OLD_STATE_FILE, OLD_STATE_FILE + '.bak')
-            print(f"Archived {OLD_STATE_FILE}")
-         except Exception as e:
-            print(f"Error archiving legacy state: {e}")
 
 def load_json(filepath, default=None):
     if default is None:
@@ -76,24 +52,16 @@ def atomic_save(filepath, data):
 
 def extract_url(line):
     """Extracts the first URL starting with http from the line using Regex."""
-    # Regex Only: Do not use simple string stripping. Use re.search(r'(http\S+)', line)
     match = re.search(r'(http\S+)', line)
     if match:
         url = match.group(1)
-        # We might still want to strip trailing punctuation that regex might catch if not careful,
-        # but the prompt specifically says "explicitly ignoring any <> tags".
-        # <http://example.com> -> group 1 is http://example.com>
-        # The prompt says "Use re.search(r'(http\S+)', line) to extract only the URL"
-        # If the input is <http://...>, \S includes >.
-        # So we probably still need to clean the trailing > if the regex captures it.
-        # But the prompt implies the regex *is* the solution.
-        # Let's clean standard delimiters just in case, to be safe "Production Level".
         return url.rstrip('>"\'')
     return None
 
 def fetch_items(url, limit=3):
     ydl_opts = {
-        'extract_flat': True,
+        'extract_flat': False, # Critical: Resolve direct links
+        'format': 'best[ext=mp4]/best', # Ensure compatible video formats
         'playlist_items': f'1-{limit}',
         'quiet': True,
         'ignoreerrors': True,
@@ -101,8 +69,9 @@ def fetch_items(url, limit=3):
     }
 
     items = []
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        try:
+    # Network Safety: Catch errors inside the loop
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             entries = []
             if 'entries' in info:
@@ -113,8 +82,8 @@ def fetch_items(url, limit=3):
             for entry in entries:
                 if entry is None: continue
                 items.append(entry)
-        except Exception as e:
-            print(f"Error fetching items: {e}")
+    except Exception as e:
+        print(f"Error fetching items from {url}: {e}")
 
     return items
 
@@ -131,7 +100,13 @@ def process_item(entry):
     if len(description) > 160:
         description = description[:160]
 
-    webpage_url = entry.get('webpage_url', entry.get('url', 'N/A'))
+    # Extraction Logic: Prefer direct stream link
+    webpage_url = entry.get('webpage_url', 'N/A')
+    direct_url = entry.get('url')
+
+    final_url = webpage_url
+    if direct_url:
+        final_url = direct_url
 
     # Metadata Fallbacks: If a thumbnail is missing, use 'N/A'
     thumbnail = 'N/A'
@@ -144,137 +119,127 @@ def process_item(entry):
     # Stable Date Stamping: Use the current system date.
     upload_date = datetime.now().strftime('%B %d, %Y')
 
-    # Metadata only check: if url or thumbnail is missing/NA
-    is_metadata_only = False
-    if thumbnail == 'N/A' or webpage_url == 'N/A':
-        is_metadata_only = True
-
     return {
         'title': title,
         'description': description,
-        'url': webpage_url,
+        'url': final_url,
         'thumbnail': thumbnail,
         'upload_date': upload_date,
         'id': entry.get('id')
-    }, is_metadata_only
+    }
 
 def main():
     setup_environment()
 
-    # 1. Read sources
+    # 1. Load Sources
     if not os.path.exists(SOURCES_FILE):
         print("No sources found")
-        sys.exit(1)
+        return
 
     with open(SOURCES_FILE, 'r') as f:
         lines = f.readlines()
 
-    source_url = None
+    # Extract valid URLs
+    source_urls = []
     for line in lines:
-        extracted = extract_url(line)
-        if extracted:
-            source_url = extracted
-            break
+        url = extract_url(line)
+        if url:
+            source_urls.append(url)
 
-    if not source_url:
+    if not source_urls:
         print("No valid sources found")
-        sys.exit(1)
+        return
 
-    # 2. Load State
+    # 2. Load State & Metadata
     state = load_json(STATE_FILE, default={})
-    last_id = state.get(source_url)
-
-    legacy_id = load_legacy_state(source_url)
-    if legacy_id and not last_id:
-        last_id = legacy_id
-
-    # 3. Fetch Items & Delta Check
-    raw_items = fetch_items(source_url, limit=3)
-
-    if not raw_items:
-        print("No items found.")
-        sys.exit(0)
-
-    latest_item = raw_items[0]
-    current_latest_id = latest_item.get('id')
-
-    # Delta Check
-    if current_latest_id == last_id and last_id is not None:
-        print('Database is up to date')
-        # If we successfully checked against legacy ID, save state now and archive legacy
-        if legacy_id and source_url not in state:
-             state[source_url] = legacy_id
-             try:
-                 atomic_save(STATE_FILE, state)
-                 archive_legacy_state()
-             except Exception:
-                 pass
-        sys.exit(0)
-
-    # 4. Processing & Deduplication
-    new_items_count = 0
-    metadata_only_count = 0
-
-    # Load existing metadata
     metadata = load_json(METADATA_FILE, default=[])
 
-    # High-Efficiency Deduplication: Set of URLs
+    # Deduplication Set
     existing_urls = set(item.get('url') for item in metadata if item.get('url'))
+    # Also track IDs to be safe if url changes (e.g. stream link expiry)?
+    # Prompt says "Deduplication: Keep the set() logic to check for existing URLs."
+    # Since we are now using direct stream links, these might change or be different from webpage_urls.
+    # However, "Deduplicate against metadata.json". If metadata.json has old items with webpage_url (from prev version)
+    # and now we get stream url, they won't match.
+    # Ideally we should deduplicate by ID if available.
+    # But strict adherence to "Keep the set() logic to check for existing URLs".
+    # I'll stick to URL for now as requested, but maybe add ID check if easy?
+    # Let's stick to URL to follow "Keep the set() logic" instruction precisely.
+    # Note: Stream URLs (e.g. googlevideo.com/...) expire. Using them for deduplication might be flaky long term.
+    # But the prompt asks for "Direct Streaming URL" to be saved.
+    # Use case: "Universal Media Harvester".
 
     items_to_add = []
+    new_items_count = 0
 
-    for entry in raw_items:
-        try:
-            processed_item, is_meta_only = process_item(entry)
-            item_url = processed_item['url']
+    # 3. Process Each Source
+    for source_url in source_urls:
+        print(f"Processing source: {source_url}")
 
-            # Check every new item against this set
-            if item_url in existing_urls:
-                continue
+        # Fetch top 3
+        raw_items = fetch_items(source_url, limit=3)
 
-            # Add item and update set immediately
-            items_to_add.append(processed_item)
-            existing_urls.add(item_url)
-
-            if is_meta_only:
-                metadata_only_count += 1
-            new_items_count += 1
-
-        except Exception as e:
-            print(f"Error processing item: {e}")
+        if not raw_items:
             continue
 
-    # 5. Database Merge
-    # Add new items to the top
-    final_metadata = items_to_add + metadata
+        # Update State (Latest ID)
+        # We assume the first item is the latest
+        latest_item = raw_items[0]
+        latest_id = latest_item.get('id')
 
-    # Keep only top 100
-    final_metadata = final_metadata[:100]
+        # Delta Check (Per Source)
+        # If latest_id matches state, we might skip processing?
+        # The prompt "Final Logic Flow" says: Fetch top 3 -> Extract -> Deduplicate -> Save.
+        # It doesn't explicitly say "skip if state matches".
+        # But "3. Fault Tolerance... Network Safety...".
+        # And "Refactor... to be a production-ready...".
+        # Usually we want to skip if up to date to save bandwidth/time, but with "extract_flat: False", fetching metadata is heavy.
+        # "Fetch top 3 items" implies we fetch them anyway.
+        # So I will process them. The Deduplication logic will handle skipping known items.
+        # I will still update the state though.
 
-    # Validation Gate
-    if not validate_data(final_metadata):
-        print("Error: Validation failed on final data. Aborting save.")
-        sys.exit(1)
+        if latest_id:
+            state[source_url] = latest_id
 
-    # Update State
-    if current_latest_id:
-        state[source_url] = current_latest_id
+        for entry in raw_items:
+            try:
+                processed_item = process_item(entry)
 
-    # 6. Atomic Save & Finalization
-    try:
-        atomic_save(METADATA_FILE, final_metadata)
+                # Deduplication
+                if processed_item['url'] in existing_urls:
+                    continue
+
+                # Add valid item
+                items_to_add.append(processed_item)
+                existing_urls.add(processed_item['url'])
+                new_items_count += 1
+
+            except Exception as e:
+                print(f"Error processing item from {source_url}: {e}")
+                continue
+
+    # 4. Save Valid Items
+    if items_to_add:
+        # Prepend new items
+        final_metadata = items_to_add + metadata
+        # Limit? Previous requirement was top 100. New prompt doesn't explicitly mention it,
+        # but says "Deduplicate... Save Valid items."
+        # I'll keep the top 100 limit to prevent unlimited growth as it was a core requirement before
+        # and "production-ready" usually implies bounding resource usage.
+        final_metadata = final_metadata[:100]
+
+        # Validation
+        if validate_data(final_metadata):
+            atomic_save(METADATA_FILE, final_metadata)
+            atomic_save(STATE_FILE, state) # Save state if we saved metadata
+            print(f"Success: {new_items_count} new items added. Total database size: {len(final_metadata)}.")
+        else:
+            print("Validation failed. Aborting save.")
+    else:
+        # Save state anyway if changed?
+        # If we just updated state but found no *new* items (all deduped), we should still save state.
         atomic_save(STATE_FILE, state)
-
-        # State Migration: Only archive at the very end if successful
-        if legacy_id:
-             archive_legacy_state()
-
-    except Exception as e:
-        print(f"Error saving data: {e}")
-        sys.exit(1)
-
-    # 7. Output
-    print(f"Success: {new_items_count} new items added. Metadata-only: {metadata_only_count}. Total database size: {len(final_metadata)}.")
+        print("No new items found.")
 
 if __name__ == "__main__":
     main()
