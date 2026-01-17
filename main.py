@@ -100,13 +100,11 @@ def process_item(entry):
     if len(description) > 160:
         description = description[:160]
 
-    # Extraction Logic: Prefer direct stream link
-    webpage_url = entry.get('webpage_url', 'N/A')
+    # Extraction Logic: Prefer direct stream link (url), fallback to webpage_url
     direct_url = entry.get('url')
+    webpage_url = entry.get('webpage_url', 'N/A')
 
-    final_url = webpage_url
-    if direct_url:
-        final_url = direct_url
+    final_url = direct_url if direct_url else webpage_url
 
     # Metadata Fallbacks: If a thumbnail is missing, use 'N/A'
     thumbnail = 'N/A'
@@ -117,14 +115,14 @@ def process_item(entry):
         thumbnail = entry.get('thumbnail')
 
     # Stable Date Stamping: Use the current system date.
-    upload_date = datetime.now().strftime('%B %d, %Y')
+    scrape_date = datetime.now().strftime('%B %d, %Y')
 
     return {
         'title': title,
         'description': description,
         'url': final_url,
         'thumbnail': thumbnail,
-        'upload_date': upload_date,
+        'scrape_date': scrape_date,
         'id': entry.get('id')
     }
 
@@ -133,11 +131,15 @@ def main():
 
     # 1. Load Sources
     if not os.path.exists(SOURCES_FILE):
-        print("No sources found")
+        print("Error: sources.txt not found.")
         return
 
     with open(SOURCES_FILE, 'r') as f:
         lines = f.readlines()
+
+    if not lines:
+        print("Error: sources.txt is empty.")
+        return
 
     # Extract valid URLs
     source_urls = []
@@ -147,27 +149,15 @@ def main():
             source_urls.append(url)
 
     if not source_urls:
-        print("No valid sources found")
+        print("No valid sources found in sources.txt.")
         return
 
     # 2. Load State & Metadata
     state = load_json(STATE_FILE, default={})
     metadata = load_json(METADATA_FILE, default=[])
 
-    # Deduplication Set
-    existing_urls = set(item.get('url') for item in metadata if item.get('url'))
-    # Also track IDs to be safe if url changes (e.g. stream link expiry)?
-    # Prompt says "Deduplication: Keep the set() logic to check for existing URLs."
-    # Since we are now using direct stream links, these might change or be different from webpage_urls.
-    # However, "Deduplicate against metadata.json". If metadata.json has old items with webpage_url (from prev version)
-    # and now we get stream url, they won't match.
-    # Ideally we should deduplicate by ID if available.
-    # But strict adherence to "Keep the set() logic to check for existing URLs".
-    # I'll stick to URL for now as requested, but maybe add ID check if easy?
-    # Let's stick to URL to follow "Keep the set() logic" instruction precisely.
-    # Note: Stream URLs (e.g. googlevideo.com/...) expire. Using them for deduplication might be flaky long term.
-    # But the prompt asks for "Direct Streaming URL" to be saved.
-    # Use case: "Universal Media Harvester".
+    # Deduplication Set (Based on ID)
+    seen_ids = set(item.get('id') for item in metadata if item.get('id'))
 
     items_to_add = []
     new_items_count = 0
@@ -187,17 +177,6 @@ def main():
         latest_item = raw_items[0]
         latest_id = latest_item.get('id')
 
-        # Delta Check (Per Source)
-        # If latest_id matches state, we might skip processing?
-        # The prompt "Final Logic Flow" says: Fetch top 3 -> Extract -> Deduplicate -> Save.
-        # It doesn't explicitly say "skip if state matches".
-        # But "3. Fault Tolerance... Network Safety...".
-        # And "Refactor... to be a production-ready...".
-        # Usually we want to skip if up to date to save bandwidth/time, but with "extract_flat: False", fetching metadata is heavy.
-        # "Fetch top 3 items" implies we fetch them anyway.
-        # So I will process them. The Deduplication logic will handle skipping known items.
-        # I will still update the state though.
-
         if latest_id:
             state[source_url] = latest_id
 
@@ -205,13 +184,14 @@ def main():
             try:
                 processed_item = process_item(entry)
 
-                # Deduplication
-                if processed_item['url'] in existing_urls:
+                # Deduplication Check (ID based)
+                item_id = processed_item['id']
+                if item_id in seen_ids:
                     continue
 
                 # Add valid item
                 items_to_add.append(processed_item)
-                existing_urls.add(processed_item['url'])
+                seen_ids.add(item_id)
                 new_items_count += 1
 
             except Exception as e:
@@ -222,10 +202,7 @@ def main():
     if items_to_add:
         # Prepend new items
         final_metadata = items_to_add + metadata
-        # Limit? Previous requirement was top 100. New prompt doesn't explicitly mention it,
-        # but says "Deduplicate... Save Valid items."
-        # I'll keep the top 100 limit to prevent unlimited growth as it was a core requirement before
-        # and "production-ready" usually implies bounding resource usage.
+        # Limit to 100
         final_metadata = final_metadata[:100]
 
         # Validation
@@ -237,7 +214,6 @@ def main():
             print("Validation failed. Aborting save.")
     else:
         # Save state anyway if changed?
-        # If we just updated state but found no *new* items (all deduped), we should still save state.
         atomic_save(STATE_FILE, state)
         print("No new items found.")
 
