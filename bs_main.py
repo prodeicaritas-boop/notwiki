@@ -9,19 +9,26 @@ from bs4 import BeautifulSoup
 METADATA_FILE = 'data/metadata.json'
 SOURCES_FILE = 'sources.txt'
 
-def safe_get_text(element, selector, default='N/A'):
+def safe_get_text(element, selector_list, default='N/A'):
     """
-    Safely extracts text from a soup element using a selector.
-    If selector is None, extracts text from the element itself.
-    Returns default if not found.
+    Safely extracts text from a soup element using a priority list of selectors.
+    If selector_list is None, extracts text from the element itself.
+    Returns the first match found, stripped of whitespace.
     """
     if not element:
         return default
-    if selector:
+
+    if selector_list is None:
+        return element.get_text(strip=True) or default
+
+    for selector in selector_list:
         found = element.select_one(selector)
-    else:
-        found = element
-    return found.get_text(strip=True) if found else default
+        if found:
+            text = found.get_text(strip=True)
+            if text:
+                return text
+
+    return default
 
 def atomic_save(data, filepath):
     """
@@ -32,6 +39,7 @@ def atomic_save(data, filepath):
         print("Error: Data is not a list. Skipping save.")
         return
 
+    # Strict Validation
     if not all(isinstance(item, dict) for item in data):
         print("Error: Data contains non-dictionary items. Skipping save.")
         return
@@ -49,8 +57,55 @@ def atomic_save(data, filepath):
         if os.path.exists(temp_filepath):
             os.remove(temp_filepath)
 
+def find_containers(soup):
+    """
+    Heuristic to find item containers based on priority.
+    """
+    # Priority 1: <article> tags or tr.athing (HN specific but widely used in this context)
+    containers = soup.select('article')
+    if containers:
+        return containers
+
+    # Check for tr.athing specifically as per previous instructions context,
+    # though strict prompt said "Priority 1: <article>".
+    # But "Generic Container Heuristic" implies finding items.
+    # HN uses tr.athing.
+    containers = soup.select('tr.athing')
+    if containers:
+        return containers
+
+    # Priority 2: div/section with specific class names
+    # We look for common class names
+    # CSS selector substring matching
+    target_classes = ['post', 'entry', 'article', 'item']
+    # Build selector: div[class*="post"], section[class*="post"], ...
+    selectors = []
+    for tag in ['div', 'section']:
+        for cls in target_classes:
+            selectors.append(f'{tag}[class*="{cls}"]')
+
+    # Try one by one or all? select allows comma separated.
+    combined_selector = ', '.join(selectors)
+    containers = soup.select(combined_selector)
+    if containers:
+        return containers
+
+    # Priority 3: li tags containing h2 or h3
+    # This requires filtering
+    lis = soup.select('li')
+    valid_lis = []
+    for li in lis:
+        if li.select_one('h2') or li.select_one('h3'):
+            valid_lis.append(li)
+
+    if valid_lis:
+        return valid_lis
+
+    # Fallback to nothing
+    return []
+
 def main():
-    # 1. Environment Check
+    # 1. Environment & Setup
     os.makedirs('data', exist_ok=True)
 
     # Initialize/Load Metadata
@@ -65,7 +120,7 @@ def main():
     else:
         current_data = []
 
-    # High-Efficiency Delta Loop: Set for O(1) lookups
+    # 4. High-Speed Deduplication
     seen_urls = {item.get('url') for item in current_data if item.get('url')}
 
     new_items = []
@@ -98,50 +153,30 @@ def main():
 
             soup = BeautifulSoup(response.content, 'lxml')
 
-            # 2. Global Metadata Discovery
-            global_thumbnail = 'N/A'
-            og_image = soup.select_one('meta[property="og:image"]') or \
-                       soup.select_one('meta[name="twitter:image"]')
-            if og_image and og_image.get('content'):
-                global_thumbnail = urljoin(url, og_image.get('content'))
-
-            # 4. Universal Extraction & Fallbacks
-            container_selectors = ['tr.athing', 'article', 'div.post', '.item', 'li']
-            items = []
-            for selector in container_selectors:
-                items = soup.select(selector)
-                if items:
-                    break
+            # 1. Generic Container Heuristic
+            items = find_containers(soup)
 
             if not items:
-                print(f"No items found for {url} with generic selectors.")
+                print(f"No containers found for {url}.")
                 continue
 
-            # Reset consecutive duplicates counter for EACH source
             consecutive_dupes = 0
 
             for item in items:
-                # Find Link & Title - Robust Hierarchy
-                link_tag = item.select_one('.titleline a') or \
-                           item.select_one('.title a') or \
-                           item.select_one('h1 a') or \
-                           item.select_one('h2 a')
+                # 3. Universal Field Extraction
 
+                # URL: First <a> with href
+                link_tag = item.select_one('a[href]')
                 if not link_tag:
-                    # Fallback: Find largest text-bearing anchor
-                    anchors = item.find_all('a', href=True)
-                    if anchors:
-                        # Sort by text length descending
-                        anchors.sort(key=lambda a: len(a.get_text(strip=True)), reverse=True)
-                        link_tag = anchors[0]
-
-                if not link_tag or not link_tag.get('href'):
                     continue
 
                 href = link_tag.get('href')
+                if not href:
+                    continue
+
                 abs_url = urljoin(url, href)
 
-                # 3. High-Efficiency Delta Logic (Stop-Gate)
+                # 4. Deduplication Logic
                 if abs_url in seen_urls:
                     consecutive_dupes += 1
                     if consecutive_dupes >= 5:
@@ -151,44 +186,33 @@ def main():
                 else:
                     consecutive_dupes = 0
 
-                # Title - Use Universal Helper
-                title = safe_get_text(link_tag, None, default='Untitled')
+                # Title
+                title = safe_get_text(item, ['h1', 'h2', 'h3', '.title', 'a'])
 
-                # Thumbnail Extraction - Improved Logic
+                # Thumbnail
                 thumbnail = 'N/A'
+                img_tags = item.select('img')
+                # Check attributes
+                target_src = None
+                for img in img_tags:
+                    target_src = img.get('data-src') or img.get('srcset') or img.get('src')
+                    if target_src:
+                        # If srcset, basic parse
+                        if img.get('srcset'):
+                             target_src = target_src.split(',')[0].strip().split(' ')[0]
+                        break
 
-                # 1. Check specific attributes on img tags
-                candidates = item.select('img[data-src], img[srcset], img[class*="thumb"]')
+                if target_src:
+                    thumbnail = urljoin(url, target_src)
 
-                target_img_src = None
-                if candidates:
-                    img = candidates[0]
-                    target_img_src = img.get('src') or img.get('data-src')
-                    if not target_img_src and img.get('srcset'):
-                        target_img_src = img.get('srcset').split(',')[0].strip().split(' ')[0]
+                # Description
+                description = safe_get_text(item, ['p', '.summary', '.description'], default='')
 
-                # 2. Fallback to any img
-                if not target_img_src:
-                     img_tag = item.select_one('img')
-                     if img_tag:
-                         target_img_src = img_tag.get('src')
-
-                if target_img_src:
-                    thumbnail = urljoin(url, target_img_src)
-                else:
-                    # 3. Fallback to Global
-                    thumbnail = global_thumbnail
-
-                # Description Extraction
-                description = safe_get_text(item, 'p', default='')
-                if not description:
-                     description = safe_get_text(item, '.description', default='')
-
-                # Space-Saving Logic
-                if description == title or not description:
+                # Logic: Missing or == Title -> Empty
+                if not description or description == title:
                     description = ""
 
-                # Truncate
+                # Limit
                 if len(description) > 160:
                     description = description[:160]
 
