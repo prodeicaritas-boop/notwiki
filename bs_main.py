@@ -49,7 +49,8 @@ def atomic_save(data, filepath):
 
 def parse_hn(soup, base_url, seen_urls):
     """
-    The HackerNews_Ritual: Dual Rows
+    The HackerNews_Ritual: Corrected for Unified Schema.
+    Merges metadata into 'description' to match the universal format.
     """
     new_items = []
     # Identify the Head (tr.athing)
@@ -58,7 +59,7 @@ def parse_hn(soup, base_url, seen_urls):
     consecutive_dupes = 0
 
     for head in heads:
-        # The Ritual of the Dual Rows: Immediately seize the Body
+        # The Ritual of the Dual Rows
         body = head.find_next_sibling('tr')
         if not body:
             continue
@@ -86,13 +87,13 @@ def parse_hn(soup, base_url, seen_urls):
 
         title = link_tag.get_text(strip=True) or 'Untitled'
 
-        # Extract from Body
-        score = safe_get_text(body, '.score', default=None)
-        user = safe_get_text(body, '.hnuser', default=None)
-        age = safe_get_text(body, '.age', default=None)
+        # Extract Metadata Components
+        score = safe_get_text(body, '.score', default='')
+        user = safe_get_text(body, '.hnuser', default='')
+        age = safe_get_text(body, '.age', default='')
 
-        # Comment Count logic: Search for 'comment' or 'discuss' in links
-        comments = None
+        # Comment Count
+        comments = ''
         subtext_links = body.select('.subtext a')
         for link in subtext_links:
             text = link.get_text(strip=True)
@@ -100,19 +101,30 @@ def parse_hn(soup, base_url, seen_urls):
                 comments = text
                 break
 
-        # Commandment III: Image Prohibition
-        thumbnail = None
+        # FUSE THE DATA (The Correction)
+        # Create a single string: "100 points | by user | 2 hours ago | 50 comments"
+        meta_parts = []
+        if score: meta_parts.append(score)
+        if user:
+            # Check if 'by ' is already in the text (safe_get_text returns raw text)
+            # HN raw text usually is just username, "by" is separate in HTML often, but sometimes inside.
+            # Let's check. On HN, <span class="hnuser">username</span>. "by" is outside.
+            # So we should add "by ".
+            user = f"by {user}"
+            meta_parts.append(user)
+        if age: meta_parts.append(age)
+        if comments: meta_parts.append(comments)
+
+        description = " | ".join(meta_parts)
 
         scrape_date = datetime.now().strftime('%Y-%m-%d')
 
+        # The Unified Return Object
         item_data = {
             "title": title,
             "url": abs_url,
-            "score": score,
-            "user": user,
-            "age": age,
-            "comments": comments,
-            "thumbnail": thumbnail,
+            "description": description,  # <--- THE HOLY UNIFICATION
+            "thumbnail": None,           # HN has no images
             "scrape_date": scrape_date,
             "source": "Hacker News"
         }
