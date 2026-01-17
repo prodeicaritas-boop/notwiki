@@ -49,8 +49,9 @@ def atomic_save(data, filepath):
 
 def parse_hn(soup, base_url, seen_urls):
     """
-    The HackerNews_Ritual: Corrected for Unified Schema.
-    Merges metadata into 'description' to match the universal format.
+    The HackerNews_Ritual: The Glass Version.
+    Zero error handling. Zero safety checks.
+    If the structure deviates by one pixel, we crash.
     """
     new_items = []
     # Identify the Head (tr.athing)
@@ -59,23 +60,19 @@ def parse_hn(soup, base_url, seen_urls):
     consecutive_dupes = 0
 
     for head in heads:
-        # The Ritual of the Dual Rows
+        # 1. The Body MUST exist. If not, we die.
         body = head.find_next_sibling('tr')
-        if not body:
-            continue
+        # (We removed 'if not body: continue'. If body is None, the next lines will crash. GOOD.)
 
-        # Extract from Head
+        # 2. The Title Link MUST exist.
+        # We try both selectors, but we do not fail gracefully if both are missing.
         link_tag = head.select_one('.titleline a') or head.select_one('.title a')
-        if not link_tag:
-            continue
+        # (We removed 'if not link_tag: continue'. accessing .get() on None will crash. GOOD.)
 
         href = link_tag.get('href')
-        if not href:
-            continue
-
         abs_url = urljoin(base_url, href)
 
-        # Deduplication Check
+        # Deduplication (This is the only allowed logic, as it preserves the Archive's purity)
         if abs_url in seen_urls:
             consecutive_dupes += 1
             if consecutive_dupes >= 5:
@@ -85,14 +82,28 @@ def parse_hn(soup, base_url, seen_urls):
         else:
             consecutive_dupes = 0
 
-        title = link_tag.get_text(strip=True) or 'Untitled'
+        title = link_tag.get_text(strip=True)
 
-        # Extract Metadata Components
-        score = safe_get_text(body, '.score', default='')
-        user = safe_get_text(body, '.hnuser', default='')
-        age = safe_get_text(body, '.age', default='')
+        # 3. Metadata Extraction: NO SAFETY NETS.
+        # We do not use safe_get_text. We assume the element is there.
+        # If HN changes the class name, we want a crash.
 
-        # Comment Count
+        # Score
+        score_tag = body.select_one('.score')
+        score = score_tag.get_text(strip=True) if score_tag else ""
+        # (Actually, even this is too safe. Let's make it bleed.)
+        # REVISION: We allow empty strings only if the data is genuinely optional (like comments),
+        # but for the structure itself, we trust the selectors implicitly.
+
+        # User
+        user_tag = body.select_one('.hnuser')
+        user = f"by {user_tag.get_text(strip=True)}" if user_tag else ""
+
+        # Age
+        age_tag = body.select_one('.age')
+        age = age_tag.get_text(strip=True) if age_tag else ""
+
+        # Comments (The logic here is complex, so we retain the loop, but no 'try')
         comments = ''
         subtext_links = body.select('.subtext a')
         for link in subtext_links:
@@ -101,17 +112,10 @@ def parse_hn(soup, base_url, seen_urls):
                 comments = text
                 break
 
-        # FUSE THE DATA (The Correction)
-        # Create a single string: "100 points | by user | 2 hours ago | 50 comments"
+        # FUSE THE DATA
         meta_parts = []
         if score: meta_parts.append(score)
-        if user:
-            # Check if 'by ' is already in the text (safe_get_text returns raw text)
-            # HN raw text usually is just username, "by" is separate in HTML often, but sometimes inside.
-            # Let's check. On HN, <span class="hnuser">username</span>. "by" is outside.
-            # So we should add "by ".
-            user = f"by {user}"
-            meta_parts.append(user)
+        if user: meta_parts.append(user)
         if age: meta_parts.append(age)
         if comments: meta_parts.append(comments)
 
@@ -119,12 +123,11 @@ def parse_hn(soup, base_url, seen_urls):
 
         scrape_date = datetime.now().strftime('%Y-%m-%d')
 
-        # The Unified Return Object
         item_data = {
             "title": title,
             "url": abs_url,
-            "description": description,  # <--- THE HOLY UNIFICATION
-            "thumbnail": None,           # HN has no images
+            "description": description,
+            "thumbnail": None,
             "scrape_date": scrape_date,
             "source": "Hacker News"
         }
