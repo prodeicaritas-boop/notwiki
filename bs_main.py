@@ -12,11 +12,15 @@ SOURCES_FILE = 'sources.txt'
 def safe_get_text(element, selector, default='N/A'):
     """
     Safely extracts text from a soup element using a selector.
+    If selector is None, extracts text from the element itself.
     Returns default if not found.
     """
     if not element:
         return default
-    found = element.select_one(selector)
+    if selector:
+        found = element.select_one(selector)
+    else:
+        found = element
     return found.get_text(strip=True) if found else default
 
 def atomic_save(data, filepath):
@@ -28,11 +32,6 @@ def atomic_save(data, filepath):
         print("Error: Data is not a list. Skipping save.")
         return
 
-    if data and not isinstance(data[0], dict):
-        print("Error: Data content is not dictionary. Skipping save.")
-        return
-
-    # Strict Validation: Verify every entry is a dict
     if not all(isinstance(item, dict) for item in data):
         print("Error: Data contains non-dictionary items. Skipping save.")
         return
@@ -51,7 +50,7 @@ def atomic_save(data, filepath):
             os.remove(temp_filepath)
 
 def main():
-    # 1. URL & Environment Prep
+    # 1. Environment Check
     os.makedirs('data', exist_ok=True)
 
     # Initialize/Load Metadata
@@ -152,29 +151,19 @@ def main():
                 else:
                     consecutive_dupes = 0
 
-                # Title - Use helper logic?
-                # safe_get_text requires a selector relative to an element.
-                # Since we already found the specific link_tag, we can just get text.
-                # But request says "Use safe_get_text for every field".
-                # To comply strictly, we would need to pass a selector that targets `link_tag` from `item`.
-                # That's hard since `link_tag` was found via fallback logic.
-                # We will use the text from link_tag directly but wrapping it in the spirit of safety.
-                title = link_tag.get_text(strip=True)
-                if not title:
-                     title = 'Untitled'
+                # Title - Use Universal Helper
+                title = safe_get_text(link_tag, None, default='Untitled')
 
                 # Thumbnail Extraction - Improved Logic
                 thumbnail = 'N/A'
 
                 # 1. Check specific attributes on img tags
-                # Look for img with data-src, srcset, or class containing 'thumb'
                 candidates = item.select('img[data-src], img[srcset], img[class*="thumb"]')
 
                 target_img_src = None
                 if candidates:
                     img = candidates[0]
                     target_img_src = img.get('src') or img.get('data-src')
-                    # If srcset, parsing is complex, usually first item is a URL
                     if not target_img_src and img.get('srcset'):
                         target_img_src = img.get('srcset').split(',')[0].strip().split(' ')[0]
 
@@ -195,9 +184,9 @@ def main():
                 if not description:
                      description = safe_get_text(item, '.description', default='')
 
-                # Smart Description Fallback
-                if not description or description == title:
-                     description = title
+                # Space-Saving Logic
+                if description == title or not description:
+                    description = ""
 
                 # Truncate
                 if len(description) > 160:
