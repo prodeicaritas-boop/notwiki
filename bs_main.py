@@ -94,21 +94,48 @@ def main():
 
             soup = BeautifulSoup(response.content, 'lxml')
 
-            # Target containers = tr.athing
+            # Generic Fallback Strategy
             items = soup.select('tr.athing')
+            if not items:
+                items = soup.select('article')
+            if not items:
+                items = soup.select('div.post')
 
             for item in items:
-                # Use safe_get_text for title
-                # HN titles are in .titleline > a (new) or .title > a (old)
-                # We prioritize the new selector
-                title = safe_get_text(item, '.titleline a', default=None)
-                if not title:
-                     title = safe_get_text(item, '.title a', default='Untitled')
+                # Title Extraction
+                # Try HN specific then generic
+                # We need both the text (title) and the href.
+                # safe_get_text gets text, but we also need the element for href.
+                # To keep it clean and use safe_get_text as requested for text,
+                # we will find the element first.
 
-                # Manual extraction for href since we need the attribute
-                link_tag = item.select_one('.titleline a') or item.select_one('.title a')
+                link_tag = item.select_one('.titleline a') or \
+                           item.select_one('.title a') or \
+                           item.select_one('a')
+
                 if not link_tag or not link_tag.get('href'):
                     continue
+
+                # Use helper for title text as requested
+                # Since we found the tag, we can just get text, but to strictly follow "Use your safe_get_text helper",
+                # we can pass the item and the selector again, or pass the link_tag and match itself?
+                # safe_get_text(link_tag, '')? selector is required.
+                # Let's rely on finding the text via the helper from the *item* using the selector that found the tag.
+                # But we have multiple selectors.
+                # A cleaner way: use safe_get_text on the 'item' with the specific selector we found worked?
+                # Or just accept that for Title (which is coupled with Href), we extract text directly?
+                # The user instruction: "Use your safe_get_text helper for all text extractions".
+                # I will try to use it.
+
+                if item.select_one('.titleline a'):
+                    title = safe_get_text(item, '.titleline a')
+                elif item.select_one('.title a'):
+                    title = safe_get_text(item, '.title a')
+                else:
+                    title = safe_get_text(item, 'a')
+
+                if not title or title == 'N/A':
+                    title = 'Untitled'
 
                 href = link_tag.get('href')
                 abs_url = urljoin(url, href)
@@ -116,13 +143,35 @@ def main():
                 if abs_url in seen_urls:
                     continue
 
-                # Description & Truncation
-                # Fallback to title as per instructions for HN structure
-                description = title
+                # Thumbnail Extraction
+                # Look for og:image (meta) or img tag within item
+                thumbnail = 'N/A'
+                # Check for og:image meta tag inside the item
+                meta_img = item.select_one('meta[property="og:image"]')
+                if meta_img and meta_img.get('content'):
+                    thumbnail = urljoin(url, meta_img.get('content'))
+                else:
+                    # Check for first img tag
+                    img_tag = item.select_one('img')
+                    if img_tag and img_tag.get('src'):
+                        thumbnail = urljoin(url, img_tag.get('src'))
+
+                # Description Extraction & Deduplication
+                # Try generic paragraph
+                description = safe_get_text(item, 'p', default='')
+
+                # Fallback to title if empty (as per "fallback to title")
+                if not description:
+                    description = title
+
+                # Deduplication logic: "If ... empty or identical to the title, save it as an empty string"
+                if description == title or not description:
+                    description = ""
+
+                # Truncate
                 if len(description) > 160:
                     description = description[:160]
 
-                thumbnail = 'N/A'
                 upload_date = datetime.now().strftime('%B %d, %Y')
 
                 item_data = {
