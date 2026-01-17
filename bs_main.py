@@ -10,16 +10,14 @@ METADATA_FILE = 'data/metadata.json'
 SOURCES_FILE = 'sources.txt'
 
 def safe_get_text(element, selector_list, default='N/A'):
-    """
-    Safely extracts text from a soup element using a priority list of selectors.
-    If selector_list is None, extracts text from the element itself.
-    Returns the first match found, stripped of whitespace.
-    """
     if not element:
         return default
-
     if selector_list is None:
         return element.get_text(strip=True) or default
+
+    # Ensure list
+    if isinstance(selector_list, str):
+        selector_list = [selector_list]
 
     for selector in selector_list:
         found = element.select_one(selector)
@@ -27,19 +25,12 @@ def safe_get_text(element, selector_list, default='N/A'):
             text = found.get_text(strip=True)
             if text:
                 return text
-
     return default
 
 def atomic_save(data, filepath):
-    """
-    Saves data to a temporary file and then atomically moves it to the target filepath.
-    Only saves if data is a valid list of dictionaries.
-    """
     if not isinstance(data, list):
         print("Error: Data is not a list. Skipping save.")
         return
-
-    # Strict Validation
     if not all(isinstance(item, dict) for item in data):
         print("Error: Data contains non-dictionary items. Skipping save.")
         return
@@ -58,57 +49,16 @@ def atomic_save(data, filepath):
             os.remove(temp_filepath)
 
 def find_containers(soup):
-    """
-    Heuristic to find item containers based on priority.
-    """
-    # Priority 1: <article> tags or tr.athing (HN specific but widely used in this context)
-    containers = soup.select('article')
-    if containers:
-        return containers
-
-    # Check for tr.athing specifically as per previous instructions context,
-    # though strict prompt said "Priority 1: <article>".
-    # But "Generic Container Heuristic" implies finding items.
-    # HN uses tr.athing.
-    containers = soup.select('tr.athing')
-    if containers:
-        return containers
-
-    # Priority 2: div/section with specific class names
-    # We look for common class names
-    # CSS selector substring matching
-    target_classes = ['post', 'entry', 'article', 'item']
-    # Build selector: div[class*="post"], section[class*="post"], ...
-    selectors = []
-    for tag in ['div', 'section']:
-        for cls in target_classes:
-            selectors.append(f'{tag}[class*="{cls}"]')
-
-    # Try one by one or all? select allows comma separated.
-    combined_selector = ', '.join(selectors)
-    containers = soup.select(combined_selector)
-    if containers:
-        return containers
-
-    # Priority 3: li tags containing h2 or h3
-    # This requires filtering
-    lis = soup.select('li')
-    valid_lis = []
-    for li in lis:
-        if li.select_one('h2') or li.select_one('h3'):
-            valid_lis.append(li)
-
-    if valid_lis:
-        return valid_lis
-
-    # Fallback to nothing
+    selectors = ['article', 'tr.athing', 'div.post', 'div.entry', 'li']
+    for selector in selectors:
+        containers = soup.select(selector)
+        if containers:
+            return containers
     return []
 
 def main():
-    # 1. Environment & Setup
     os.makedirs('data', exist_ok=True)
 
-    # Initialize/Load Metadata
     if os.path.exists(METADATA_FILE):
         try:
             with open(METADATA_FILE, 'r', encoding='utf-8') as f:
@@ -120,63 +70,56 @@ def main():
     else:
         current_data = []
 
-    # 4. High-Speed Deduplication
     seen_urls = {item.get('url') for item in current_data if item.get('url')}
-
     new_items = []
 
-    # Read Sources
     if not os.path.exists(SOURCES_FILE):
-        print(f"{SOURCES_FILE} not found.")
+        print(f"Warning: {SOURCES_FILE} not found. Exiting.")
         return
 
     with open(SOURCES_FILE, 'r', encoding='utf-8') as f:
-        sources = f.readlines()
+        lines = f.readlines()
+
+    valid_sources = []
+    for line in lines:
+        match = re.search(r'(http\S+)', line)
+        if match:
+            valid_sources.append(match.group(1).rstrip('>"\''))
+
+    if not valid_sources:
+        print("Warning: No valid sources found in sources.txt. Exiting.")
+        return
 
     session = requests.Session()
     session.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     })
 
-    for line in sources:
-        # Regex extraction
-        match = re.search(r'(http\S+)', line)
-        if not match:
-            continue
-
-        url = match.group(1).rstrip('>"\'')
+    for url in valid_sources:
         print(f"Fetching {url}...")
-
         try:
             response = session.get(url, timeout=15)
             response.raise_for_status()
-
             soup = BeautifulSoup(response.content, 'lxml')
 
-            # 1. Generic Container Heuristic
-            items = find_containers(soup)
-
-            if not items:
+            containers = find_containers(soup)
+            if not containers:
                 print(f"No containers found for {url}.")
                 continue
 
             consecutive_dupes = 0
 
-            for item in items:
-                # 3. Universal Field Extraction
-
-                # URL: First <a> with href
+            for item in containers:
+                # URL Extraction
                 link_tag = item.select_one('a[href]')
                 if not link_tag:
                     continue
-
                 href = link_tag.get('href')
                 if not href:
                     continue
-
                 abs_url = urljoin(url, href)
 
-                # 4. Deduplication Logic
+                # Deduplication
                 if abs_url in seen_urls:
                     consecutive_dupes += 1
                     if consecutive_dupes >= 5:
@@ -192,55 +135,42 @@ def main():
                 # Thumbnail
                 thumbnail = 'N/A'
                 img_tags = item.select('img')
-                # Check attributes
                 target_src = None
                 for img in img_tags:
                     target_src = img.get('data-src') or img.get('srcset') or img.get('src')
                     if target_src:
-                        # If srcset, basic parse
-                        if img.get('srcset'):
+                         if img.get('srcset'):
                              target_src = target_src.split(',')[0].strip().split(' ')[0]
-                        break
-
+                         break
                 if target_src:
                     thumbnail = urljoin(url, target_src)
 
                 # Description
-                description = safe_get_text(item, ['p', '.summary', '.description'], default='')
-
-                # Logic: Missing or == Title -> Empty
+                description = safe_get_text(item, ['p', '.summary', '.description'])
                 if not description or description == title:
                     description = ""
-
-                # Limit
                 if len(description) > 160:
                     description = description[:160]
 
-                upload_date = datetime.now().strftime('%B %d, %Y')
+                scrape_date = datetime.now().strftime('%Y-%m-%d')
 
                 item_data = {
                     "title": title,
                     "url": abs_url,
                     "description": description,
                     "thumbnail": thumbnail,
-                    "upload_date": upload_date
+                    "scrape_date": scrape_date
                 }
-
                 new_items.append(item_data)
                 seen_urls.add(abs_url)
 
-        except Exception as e:
-            # 6. Network Safety
-            print(f"Error processing {url}: {e}")
+        except requests.RequestException as e:
+            print(f"Error fetching {url}: {e}")
             continue
 
-    # Post-Processing
     if new_items:
-        # Prepend new items
         final_data = new_items + current_data
-        # Limit to 100
         final_data = final_data[:100]
-        # Atomic Save
         atomic_save(final_data, METADATA_FILE)
     else:
         print("No new items found.")
