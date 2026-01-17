@@ -28,8 +28,9 @@ def atomic_save(data, filepath):
         print("Error: Data is not a list. Skipping save.")
         return
 
-    if data and not isinstance(data[0], dict):
-        print("Error: Data content is not dictionary. Skipping save.")
+    # Strict Validation: Verify every entry is a dict
+    if not all(isinstance(item, dict) for item in data):
+        print("Error: Data contains non-dictionary items. Skipping save.")
         return
 
     temp_filepath = filepath + '.tmp'
@@ -94,14 +95,14 @@ def main():
 
             soup = BeautifulSoup(response.content, 'lxml')
 
-            # 2. Smart Global Metadata (Global Thumbnail)
+            # 2. Global Metadata Discovery
             global_thumbnail = 'N/A'
             og_image = soup.select_one('meta[property="og:image"]') or \
                        soup.select_one('meta[name="twitter:image"]')
             if og_image and og_image.get('content'):
                 global_thumbnail = urljoin(url, og_image.get('content'))
 
-            # 5. Universal Containers
+            # 4. Universal Extraction & Fallbacks
             container_selectors = ['tr.athing', 'article', 'div.post', '.item', 'li']
             items = []
             for selector in container_selectors:
@@ -116,8 +117,8 @@ def main():
             consecutive_dupes = 0
 
             for item in items:
-                # Extraction
-                # Try to find a link
+                # Find Link & Title
+                # We prioritize finding the anchor tag to get both text and href
                 link_tag = item.select_one('.titleline a') or \
                            item.select_one('.title a') or \
                            item.select_one('h1 a') or \
@@ -130,7 +131,7 @@ def main():
                 href = link_tag.get('href')
                 abs_url = urljoin(url, href)
 
-                # Delta Check & Stop-Gate
+                # 3. High-Efficiency Delta Logic (Stop-Gate)
                 if abs_url in seen_urls:
                     consecutive_dupes += 1
                     if consecutive_dupes >= 5:
@@ -145,9 +146,9 @@ def main():
                 if not title:
                      title = 'Untitled'
 
-                # Thumbnail extraction
-                thumbnail = global_thumbnail # Fallback
-                # Item specific check
+                # Thumbnail Extraction
+                thumbnail = global_thumbnail
+                # Check for item-specific thumbnail
                 meta_img = item.select_one('meta[property="og:image"]')
                 if meta_img and meta_img.get('content'):
                     thumbnail = urljoin(url, meta_img.get('content'))
@@ -156,19 +157,19 @@ def main():
                     if img_tag and img_tag.get('src'):
                         thumbnail = urljoin(url, img_tag.get('src'))
 
-                # Description extraction
+                # Description Extraction
                 description = safe_get_text(item, 'p', default='')
+
+                # 5. Database Optimization
+                # Fallback to title
                 if not description:
-                     # Attempt to find text inside the container if it's an article/div
-                     # But safe_get_text requires selector.
-                     # If 'p' failed, maybe just text limit?
-                     # Fallback to title as per instructions
                      description = title
 
-                # Space-Saving
+                # Space-Saving: empty if identical to title
                 if description == title or not description:
                     description = ""
 
+                # Truncate
                 if len(description) > 160:
                     description = description[:160]
 
@@ -186,6 +187,7 @@ def main():
                 seen_urls.add(abs_url)
 
         except Exception as e:
+            # 6. Network Safety
             print(f"Error processing {url}: {e}")
             continue
 
