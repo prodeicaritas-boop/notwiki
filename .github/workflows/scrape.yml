@@ -1,0 +1,42 @@
+name: FMHY Stealth Scraper
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Run daily at midnight
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  scrape-and-update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Need permission to push changes
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run Scraper Ecosystem
+      env:
+        EMAIL_NOTIFY_SENDER: ${{ secrets.EMAIL_NOTIFY_SENDER }}
+        EMAIL_NOTIFY_PASSWORD: ${{ secrets.EMAIL_NOTIFY_PASSWORD }}
+        EMAIL_NOTIFY_RECEIVER: ${{ secrets.EMAIL_NOTIFY_RECEIVER }}
+      run: |
+        python main.py
+        python notifier.py
+
+    - name: Commit and Push Changes
+      uses: stefanzweifel/git-auto-commit-action@v4
+      with:
+        commit_message: "🤖 Automated Scraper Update [skip ci]"
+        branch: main
+        file_pattern: 'data/ assets/ logs/'
