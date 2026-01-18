@@ -43,16 +43,19 @@ def count_new_links(latest_file, previous_file):
         new_links = latest_ids - prev_ids
         return len(new_links)
 
-    except Exception as e:
+    except (json.JSONDecodeError, IOError) as e:
         logger.error(f"Error comparing files: {e}")
         return 0
 
 def check_errors():
     """Checks if the error log has content."""
     if os.path.exists(config.ERROR_LOG):
-        if os.path.getsize(config.ERROR_LOG) > 0:
-            with open(config.ERROR_LOG, 'r') as f:
-                return f.read()
+        try:
+            if os.path.getsize(config.ERROR_LOG) > 0:
+                with open(config.ERROR_LOG, 'r') as f:
+                    return f.read()
+        except IOError as e:
+            logger.error(f"Error reading log file: {e}")
     return None
 
 def send_email(subject, body):
@@ -80,8 +83,10 @@ def send_email(subject, body):
         server.send_message(msg)
         server.quit()
         logger.info("Email notification sent successfully.")
-    except Exception as e:
-        logger.error(f"Failed to send email: {e}")
+    except smtplib.SMTPException as e:
+        logger.error(f"Failed to send email (SMTP error): {e}")
+    except OSError as e: # Catch socket/network errors
+        logger.error(f"Failed to send email (Network error): {e}")
 
 def main():
     logger.info("Starting notification check...")

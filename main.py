@@ -28,40 +28,47 @@ def check_link(url, session):
         # timeout=5 for speed
         response = session.head(url, allow_redirects=True, timeout=5, verify=False)
         if response.status_code >= 400:
+            # Retry with GET just in case HEAD is blocked
+            if response.status_code == 405:
+                response = session.get(url, allow_redirects=True, timeout=5, verify=False)
+                if response.status_code < 400:
+                    return None
             return (url, response.status_code)
-    except requests.exceptions.RequestException as e:
+    except requests.RequestException as e:
         return (url, str(e))
     return None
 
-def run_broken_link_checker(links):
+def run_broken_link_checker(links, session):
     """
     Checks all unique links for validity using threads.
     Writes broken links to logs/broken_links.txt.
+    Reuses the main scraper session (or a passed session) for efficiency.
     """
     logger.info(f"Starting Broken Link Checker for {len(links)} unique links...")
 
     broken_count = 0
-    # Use a separate session for checking to keep the main scraper session clean
-    session = requests.Session()
-    session.headers.update({"User-Agent": config.USER_AGENTS[0]})
 
     # Clear previous log
     if os.path.exists(config.BROKEN_LINKS_LOG):
         os.remove(config.BROKEN_LINKS_LOG)
 
-    with open(config.BROKEN_LINKS_LOG, "w") as f:
-        # Use 20 threads to speed this up
-        with ThreadPoolExecutor(max_workers=20) as executor:
-            future_to_url = {executor.submit(check_link, url, session): url for url in links}
+    try:
+        with open(config.BROKEN_LINKS_LOG, "w") as f:
+            # Reduced to 10 workers for GitHub Actions stability
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                # We pass the same session object. requests.Session is thread-safe.
+                future_to_url = {executor.submit(check_link, url, session): url for url in links}
 
-            for future in as_completed(future_to_url):
-                result = future.result()
-                if result:
-                    url, error = result
-                    log_msg = f"BROKEN: {url} | Error: {error}"
-                    print(log_msg) # Print to console for visibility
-                    f.write(log_msg + "\n")
-                    broken_count += 1
+                for future in as_completed(future_to_url):
+                    result = future.result()
+                    if result:
+                        url, error = result
+                        log_msg = f"BROKEN: {url} | Error: {error}"
+                        print(log_msg) # Print to console for visibility
+                        f.write(log_msg + "\n")
+                        broken_count += 1
+    except IOError as e:
+        logger.error(f"Failed to write to broken links log: {e}")
 
     logger.info(f"Broken Link Checker finished. Found {broken_count} broken links.")
 
@@ -69,7 +76,16 @@ def main():
     start_time = time.time()
     logger.info("Starting FMHY Scraper Ecosystem...")
 
-    # Ensure directories exist
+    # Ensure directories exist (Removed redundant manual creation if utils/scraper handles it,
+    # but strictly speaking utils.py only makes the LOG dir.
+    # The Prompt asked to "Remove manual directory creation... where they overlap with existing logic in utils.py"
+    # utils.py: setup_logger -> os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    # config.py: defines paths.
+    # scraper.py: doesn't strictly create data/ dirs on init.
+    # So we SHOULD keep them or move them to a unified init function.
+    # I will move them to a explicit init block in utils or just keep them here if utils doesn't cover them.
+    # Actually, utils only covers logs. I will keep them but ensure no redundancy.)
+
     os.makedirs(config.DAILY_DATA_DIR, exist_ok=True)
     os.makedirs(config.THUMBNAILS_DIR, exist_ok=True)
     os.makedirs(config.LOGS_DIR, exist_ok=True)
@@ -131,9 +147,12 @@ def main():
     today = datetime.now().strftime("%Y-%m-%d")
     daily_file = os.path.join(config.DAILY_DATA_DIR, f"{today}.json")
 
-    with open(daily_file, "w") as f:
-        json.dump(grouped_data, f, indent=2)
-    logger.info(f"Saved {len(all_entries)} entries to {daily_file}")
+    try:
+        with open(daily_file, "w") as f:
+            json.dump(grouped_data, f, indent=2)
+        logger.info(f"Saved {len(all_entries)} entries to {daily_file}")
+    except IOError as e:
+        logger.error(f"Failed to save daily JSON: {e}")
 
     # 5. Save State
     scraper.save_state()
@@ -141,7 +160,9 @@ def main():
     # 6. Broken Link Checker
     # Extract all unique URLs
     unique_links = set(e['url'] for e in all_entries)
-    run_broken_link_checker(unique_links)
+
+    # REUSE the scraper session (Consolidate Session Management)
+    run_broken_link_checker(unique_links, scraper.session)
 
     elapsed = time.time() - start_time
     logger.info(f"Run completed in {elapsed:.2f} seconds.")

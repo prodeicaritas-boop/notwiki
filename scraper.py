@@ -6,7 +6,7 @@ import json
 import logging
 import os
 from io import BytesIO
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import config
@@ -25,8 +25,10 @@ class FMHYScraper:
             try:
                 with open(config.STATE_FILE, 'r') as f:
                     return json.load(f)
-            except Exception as e:
-                self.logger.error(f"Failed to load state file: {e}")
+            except json.JSONDecodeError as e:
+                self.logger.error(f"Failed to load state file (JSON error): {e}")
+            except IOError as e:
+                self.logger.error(f"Failed to load state file (IO error): {e}")
         return {}
 
     def save_state(self):
@@ -34,7 +36,7 @@ class FMHYScraper:
         try:
             with open(config.STATE_FILE, 'w') as f:
                 json.dump(self.state, f, indent=2)
-        except Exception as e:
+        except IOError as e:
             self.logger.error(f"Failed to save state file: {e}")
 
     def should_scrape(self, url, content_hash):
@@ -154,7 +156,7 @@ class FMHYScraper:
                 links = extract_links(sidebar)
                 self.logger.info(f"Discovered {len(links)} navigation links from JSON.")
 
-            except Exception as e:
+            except (json.JSONDecodeError, AttributeError, UnicodeDecodeError) as e:
                 self.logger.error(f"Failed to parse VitePress JSON data: {e}")
                 # Fallback?
         else:
@@ -230,7 +232,7 @@ class FMHYScraper:
             img.save(target_path, "WEBP", quality=config.IMAGE_QUALITY)
             return f"{unique_id}.webp"
 
-        except Exception as e:
+        except (requests.RequestException, UnidentifiedImageError, IOError) as e:
             self.logger.error(f"Failed to process image {img_url}: {e}")
             return None
 
@@ -313,7 +315,7 @@ class FMHYScraper:
 
                             entries.append(entry)
 
-                        except Exception as e:
+                        except (AttributeError, TypeError) as e:
                             self.logger.error(f"Error parsing item in {section_title}: {e}")
                             continue
 
