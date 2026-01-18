@@ -4,6 +4,7 @@ import re
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
 import requests
+from requests.adapters import HTTPAdapter
 from bs4 import BeautifulSoup
 
 METADATA_FILE = 'data/metadata.json'
@@ -49,9 +50,8 @@ def atomic_save(data, filepath):
 
 def parse_hn(soup, base_url, seen_urls):
     """
-    The HackerNews_Ritual: The Glass Version.
-    Zero error handling. Zero safety checks.
-    If the structure deviates by one pixel, we crash.
+    The HackerNews_Ritual: The Glass Version (Refactored for Resilience).
+    Now with error handling inside the loop to skip malformed items.
     """
     new_items = []
     # Identify the Head (tr.athing)
@@ -60,80 +60,81 @@ def parse_hn(soup, base_url, seen_urls):
     consecutive_dupes = 0
 
     for head in heads:
-        # 1. The Body MUST exist. If not, we die.
-        body = head.find_next_sibling('tr')
-        # (We removed 'if not body: continue'. If body is None, the next lines will crash. GOOD.)
+        try:
+            # 1. The Body MUST exist.
+            body = head.find_next_sibling('tr')
+            if not body:
+                raise ValueError("Missing body row")
 
-        # 2. The Title Link MUST exist.
-        # We try both selectors, but we do not fail gracefully if both are missing.
-        link_tag = head.select_one('.titleline a') or head.select_one('.title a')
-        # (We removed 'if not link_tag: continue'. accessing .get() on None will crash. GOOD.)
+            # 2. The Title Link MUST exist.
+            link_tag = head.select_one('.titleline a') or head.select_one('.title a')
+            if not link_tag:
+                raise ValueError("Missing title link")
 
-        href = link_tag.get('href')
-        abs_url = urljoin(base_url, href)
+            href = link_tag.get('href')
+            abs_url = urljoin(base_url, href)
 
-        # Deduplication (This is the only allowed logic, as it preserves the Archive's purity)
-        if abs_url in seen_urls:
-            consecutive_dupes += 1
-            if consecutive_dupes >= 5:
-                print(f"Hit 5 consecutive duplicates for {base_url}. Breaking.")
-                break
+            # Deduplication
+            if abs_url in seen_urls:
+                consecutive_dupes += 1
+                if consecutive_dupes >= 5:
+                    print(f"Hit 5 consecutive duplicates for {base_url}. Breaking.")
+                    break
+                continue
+            else:
+                consecutive_dupes = 0
+
+            title = link_tag.get_text(strip=True)
+
+            # 3. Metadata Extraction
+            # Score
+            score_tag = body.select_one('.score')
+            score = score_tag.get_text(strip=True) if score_tag else ""
+
+            # User
+            user_tag = body.select_one('.hnuser')
+            user = f"by {user_tag.get_text(strip=True)}" if user_tag else ""
+
+            # Age
+            age_tag = body.select_one('.age')
+            age = age_tag.get_text(strip=True) if age_tag else ""
+
+            # Comments
+            comments = ''
+            subtext_links = body.select('.subtext a')
+            for link in subtext_links:
+                text = link.get_text(strip=True)
+                if 'comment' in text or 'discuss' in text:
+                    comments = text
+                    break
+
+            # FUSE THE DATA
+            meta_parts = []
+            if score: meta_parts.append(score)
+            if user: meta_parts.append(user)
+            if age: meta_parts.append(age)
+            if comments: meta_parts.append(comments)
+
+            description = " | ".join(meta_parts)
+
+            scrape_date = datetime.now().strftime('%Y-%m-%d')
+
+            item_data = {
+                "title": title,
+                "url": abs_url,
+                "description": description,
+                "thumbnail": None,
+                "scrape_date": scrape_date,
+                "source": "Hacker News"
+            }
+
+            new_items.append(item_data)
+            seen_urls.add(abs_url)
+
+        except Exception as e:
+            # Log warning and continue to next item
+            print(f"Skipping malformed item in HN: {e}")
             continue
-        else:
-            consecutive_dupes = 0
-
-        title = link_tag.get_text(strip=True)
-
-        # 3. Metadata Extraction: NO SAFETY NETS.
-        # We do not use safe_get_text. We assume the element is there.
-        # If HN changes the class name, we want a crash.
-
-        # Score
-        score_tag = body.select_one('.score')
-        score = score_tag.get_text(strip=True) if score_tag else ""
-        # (Actually, even this is too safe. Let's make it bleed.)
-        # REVISION: We allow empty strings only if the data is genuinely optional (like comments),
-        # but for the structure itself, we trust the selectors implicitly.
-
-        # User
-        user_tag = body.select_one('.hnuser')
-        user = f"by {user_tag.get_text(strip=True)}" if user_tag else ""
-
-        # Age
-        age_tag = body.select_one('.age')
-        age = age_tag.get_text(strip=True) if age_tag else ""
-
-        # Comments (The logic here is complex, so we retain the loop, but no 'try')
-        comments = ''
-        subtext_links = body.select('.subtext a')
-        for link in subtext_links:
-            text = link.get_text(strip=True)
-            if 'comment' in text or 'discuss' in text:
-                comments = text
-                break
-
-        # FUSE THE DATA
-        meta_parts = []
-        if score: meta_parts.append(score)
-        if user: meta_parts.append(user)
-        if age: meta_parts.append(age)
-        if comments: meta_parts.append(comments)
-
-        description = " | ".join(meta_parts)
-
-        scrape_date = datetime.now().strftime('%Y-%m-%d')
-
-        item_data = {
-            "title": title,
-            "url": abs_url,
-            "description": description,
-            "thumbnail": None,
-            "scrape_date": scrape_date,
-            "source": "Hacker News"
-        }
-
-        new_items.append(item_data)
-        seen_urls.add(abs_url)
 
     return new_items
 
@@ -249,44 +250,54 @@ def main():
         return
 
     session = requests.Session()
+    adapter = HTTPAdapter(max_retries=3)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+
     session.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
     })
 
     collected_items = []
 
-    for url in valid_sources:
-        print(f"Fetching {url}...")
-        try:
-            response = session.get(url, timeout=15)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.content, 'lxml')
+    try:
+        for url in valid_sources:
+            print(f"Fetching {url}...")
+            try:
+                response = session.get(url, timeout=15)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.content, 'lxml')
 
-            domain = urlparse(url).netloc
+                domain = urlparse(url).netloc
 
-            # Commandment I: The Domain Router
-            if 'news.ycombinator.com' in domain:
-                items = parse_hn(soup, url, seen_urls)
-            else:
-                items = parse_generic(soup, url, seen_urls)
+                # Commandment I: The Domain Router
+                if 'news.ycombinator.com' in domain:
+                    items = parse_hn(soup, url, seen_urls)
+                else:
+                    items = parse_generic(soup, url, seen_urls)
 
-            if items:
-                print(f"Found {len(items)} new items from {url}.")
-                collected_items.extend(items)
-            else:
-                print(f"No new items found from {url}.")
+                if items:
+                    print(f"Found {len(items)} new items from {url}.")
+                    collected_items.extend(items)
+                else:
+                    print(f"No new items found from {url}.")
 
-        except requests.RequestException as e:
-            print(f"Error fetching {url}: {e}")
-            continue
+            except requests.RequestException as e:
+                print(f"Error fetching {url}: {e}")
+                continue
+            except Exception as e:
+                print(f"Unexpected error processing {url}: {e}")
+                continue
 
-    if collected_items:
-        # Commandment IV: Expansion of Memory (No Limit)
-        # Prepend new items to the existing data
-        final_data = collected_items + current_data
-        atomic_save(final_data, METADATA_FILE)
-    else:
-        print("No new items found.")
+    finally:
+        if collected_items:
+            # Commandment IV: Expansion of Memory (No Limit)
+            # Prepend new items to the existing data
+            print(f"Saving {len(collected_items)} collected items...")
+            final_data = collected_items + current_data
+            atomic_save(final_data, METADATA_FILE)
+        else:
+            print("No new items found to save.")
 
 if __name__ == '__main__':
     main()
