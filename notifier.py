@@ -58,6 +58,24 @@ def check_errors():
             logger.error(f"Error reading log file: {e}")
     return None
 
+def check_broken_links():
+    """Checks if broken links log exists and returns the first 50 lines."""
+    if os.path.exists(config.BROKEN_LINKS_LOG):
+        try:
+            if os.path.getsize(config.BROKEN_LINKS_LOG) > 0:
+                with open(config.BROKEN_LINKS_LOG, 'r') as f:
+                    lines = []
+                    for _ in range(50):
+                        line = f.readline()
+                        if not line:
+                            break
+                        lines.append(line)
+                    if lines:
+                        return "".join(lines)
+        except IOError as e:
+            logger.error(f"Error reading broken links log: {e}")
+    return None
+
 def send_email(subject, body):
     """Sends an email notification."""
     sender = config.EMAIL_SENDER
@@ -105,16 +123,26 @@ def main():
     if error_content:
         logger.info("Critical errors found in log.")
 
-    # 3. Decision Logic
-    if new_link_count > 0 or error_content:
+    # 3. Check for Broken Links
+    broken_links_content = check_broken_links()
+    if broken_links_content:
+        logger.info("Broken links found in log.")
+
+    # 4. Decision Logic
+    if new_link_count > 0 or error_content or broken_links_content:
         subject = f"FMHY Scraper Report - {new_link_count} New Links"
         body = f"Scraper Run Complete.\n\nNew Links Found: {new_link_count}\n"
 
         if error_content:
             subject += " [ERRORS DETECTED]"
             body += "\n--- ERRORS ---\n" + error_content
-        else:
-            body += "\nNo critical errors reported."
+
+        if broken_links_content:
+            subject += " [BROKEN LINKS]"
+            body += "\n--- BROKEN LINKS (First 50) ---\n" + broken_links_content
+
+        if not error_content and not broken_links_content:
+            body += "\nNo critical errors or broken links reported."
 
         send_email(subject, body)
     else:
