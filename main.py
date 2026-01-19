@@ -28,8 +28,8 @@ def check_link(url, session):
         # timeout=5 for speed
         response = session.head(url, allow_redirects=True, timeout=5, verify=False)
         if response.status_code >= 400:
-            # Retry with GET just in case HEAD is blocked
-            if response.status_code == 405:
+            # Retry with GET just in case HEAD is blocked (405 Method Not Allowed, 403 Forbidden)
+            if response.status_code in [405, 403]:
                 response = session.get(url, allow_redirects=True, timeout=5, verify=False)
                 if response.status_code < 400:
                     return None

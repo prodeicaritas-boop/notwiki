@@ -47,6 +47,11 @@ def setup_logger(name, log_file, level=logging.INFO):
     logger.setLevel(level)
     logger.addHandler(handler)
 
+    # Also log to console (stdout) for GitHub Actions visibility
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
     return logger
 
 def save_error(message, error_file):

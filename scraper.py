@@ -59,9 +59,10 @@ class FMHYScraper:
         Fetches a URL with stealth and reliability mechanisms.
         - Rotates User-Agents.
         - Sleeps randomly (3-7s) before request.
-        - Retries on 429 (Too Many Requests) by sleeping 60s.
+        - Retries on 429 (Too Many Requests) with exponential backoff.
         """
         max_retries = 3
+        base_backoff = 60
 
         for attempt in range(max_retries):
             # 1. Rotate User-Agent
@@ -78,8 +79,9 @@ class FMHYScraper:
 
                 # 3. Check for 429 (Rate Limit)
                 if response.status_code == 429:
-                    self.logger.warning(f"Rate limited (429) on {url}. Sleeping for {config.RETRY_SLEEP}s...")
-                    time.sleep(config.RETRY_SLEEP)
+                    backoff_time = base_backoff * (2 ** attempt)
+                    self.logger.warning(f"Rate limited (429) on {url}. Sleeping for {backoff_time}s (Attempt {attempt+1})...")
+                    time.sleep(backoff_time)
                     continue
 
                 response.raise_for_status()
