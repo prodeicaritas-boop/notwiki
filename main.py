@@ -3,10 +3,13 @@ import json
 import time
 import logging
 import hashlib
+import argparse
+import random
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 import urllib3
+import glob
 
 import config
 from scraper import FMHYScraper
@@ -21,76 +24,46 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 def check_link(url, session):
     """
     Checks if a link is broken using a HEAD request.
-    Returns (url, status_code/error) if broken, else None.
+    Uses random User-Agents per request via headers override.
+    Returns (url, status_code/error, is_critical_failure)
     """
+    # Use random User-Agent for this specific check
+    headers = {"User-Agent": random.choice(config.USER_AGENTS)}
+
     try:
-        # verify=False to avoid SSL errors on sketchy sites
-        # timeout=5 for speed
-        response = session.head(url, allow_redirects=True, timeout=5, verify=False)
+        # timeout=3 as requested
+        response = session.head(url, headers=headers, allow_redirects=True, timeout=3, verify=False)
+
+        # Determine if this is a "critical" failure type for the circuit breaker (403/404/429)
+        is_critical = response.status_code in [403, 404, 429]
+
         if response.status_code >= 400:
             # Retry with GET just in case HEAD is blocked (405 Method Not Allowed, 403 Forbidden)
             if response.status_code in [405, 403]:
-                response = session.get(url, allow_redirects=True, timeout=5, verify=False)
+                response = session.get(url, headers=headers, allow_redirects=True, timeout=3, verify=False)
+                # Re-evaluate critical status after retry
+                is_critical = response.status_code in [403, 404, 429]
                 if response.status_code < 400:
                     return None
-            return (url, response.status_code)
+
+            return (url, response.status_code, is_critical)
+
     except requests.RequestException as e:
-        return (url, str(e))
+        # Network errors count towards critical failures?
+        # Usually connection refused/timeout might be temporary, but if persistent, yes.
+        # But instructions say "Failed requests (403/404/429)".
+        # So generic connection errors might not trigger the specific breaker logic unless they are HTTP responses.
+        # However, a timeout/connection error is not a 403/404/429. It's an exception.
+        # I'll stick to status codes for the strict definition, but treat exceptions as broken links.
+        return (url, str(e), False)
+
     return None
 
-def run_broken_link_checker(links, session):
+def run_scraper_mode(scraper):
     """
-    Checks all unique links for validity using threads.
-    Writes broken links to logs/broken_links.txt.
-    Reuses the main scraper session (or a passed session) for efficiency.
+    Runs the scraping, parsing, and image processing pipeline.
     """
-    logger.info(f"Starting Broken Link Checker for {len(links)} unique links...")
-
-    broken_count = 0
-
-    # Clear previous log
-    if os.path.exists(config.BROKEN_LINKS_LOG):
-        os.remove(config.BROKEN_LINKS_LOG)
-
-    try:
-        with open(config.BROKEN_LINKS_LOG, "w") as f:
-            # Reduced to 10 workers for GitHub Actions stability
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                # We pass the same session object. requests.Session is thread-safe.
-                future_to_url = {executor.submit(check_link, url, session): url for url in links}
-
-                for future in as_completed(future_to_url):
-                    result = future.result()
-                    if result:
-                        url, error = result
-                        log_msg = f"BROKEN: {url} | Error: {error}"
-                        print(log_msg) # Print to console for visibility
-                        f.write(log_msg + "\n")
-                        broken_count += 1
-    except IOError as e:
-        logger.error(f"Failed to write to broken links log: {e}")
-
-    logger.info(f"Broken Link Checker finished. Found {broken_count} broken links.")
-
-def main():
-    start_time = time.time()
-    logger.info("Starting FMHY Scraper Ecosystem...")
-
-    # Ensure directories exist (Removed redundant manual creation if utils/scraper handles it,
-    # but strictly speaking utils.py only makes the LOG dir.
-    # The Prompt asked to "Remove manual directory creation... where they overlap with existing logic in utils.py"
-    # utils.py: setup_logger -> os.makedirs(os.path.dirname(log_file), exist_ok=True)
-    # config.py: defines paths.
-    # scraper.py: doesn't strictly create data/ dirs on init.
-    # So we SHOULD keep them or move them to a unified init function.
-    # I will move them to a explicit init block in utils or just keep them here if utils doesn't cover them.
-    # Actually, utils only covers logs. I will keep them but ensure no redundancy.)
-
-    os.makedirs(config.DAILY_DATA_DIR, exist_ok=True)
-    os.makedirs(config.THUMBNAILS_DIR, exist_ok=True)
-    os.makedirs(config.LOGS_DIR, exist_ok=True)
-
-    scraper = FMHYScraper()
+    logger.info("Running in SCRAPE mode.")
 
     # 1. Discovery
     nav_links = scraper.get_navigation_links()
@@ -157,12 +130,115 @@ def main():
     # 5. Save State
     scraper.save_state()
 
-    # 6. Broken Link Checker
-    # Extract all unique URLs
-    unique_links = set(e['url'] for e in all_entries)
+def load_latest_links():
+    """Retrieves unique URLs from the most recent daily JSON file."""
+    files = sorted(glob.glob(os.path.join(config.DAILY_DATA_DIR, "*.json")))
+    if not files:
+        logger.error("No data files found for Audit Mode.")
+        return []
 
-    # REUSE the scraper session (Consolidate Session Management)
-    run_broken_link_checker(unique_links, scraper.session)
+    latest_file = files[-1]
+    logger.info(f"Loading links from {latest_file}...")
+
+    try:
+        with open(latest_file, 'r') as f:
+            data = json.load(f)
+
+        unique_links = set()
+        for cat, items in data.items():
+            for item in items:
+                if 'url' in item:
+                    unique_links.add(item['url'])
+        return list(unique_links)
+
+    except (IOError, json.JSONDecodeError) as e:
+        logger.error(f"Failed to load links from {latest_file}: {e}")
+        return []
+
+def run_audit_mode(session):
+    """
+    Runs only the broken link checker with Circuit Breaker logic.
+    """
+    logger.info("Running in AUDIT mode.")
+    links = load_latest_links()
+    if not links:
+        logger.warning("No links to check. Exiting Audit Mode.")
+        return
+
+    logger.info(f"Starting Circuit Breaker Link Checker for {len(links)} unique links...")
+
+    broken_count = 0
+    consecutive_errors = 0
+    CIRCUIT_BREAKER_LIMIT = 50
+
+    # Clear previous log
+    if os.path.exists(config.BROKEN_LINKS_LOG):
+        os.remove(config.BROKEN_LINKS_LOG)
+
+    try:
+        with open(config.BROKEN_LINKS_LOG, "w") as f:
+            # Max workers = 3 as requested
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                future_to_url = {executor.submit(check_link, url, session): url for url in links}
+
+                # Iterate as they complete
+                for future in as_completed(future_to_url):
+                    # Check Circuit Breaker
+                    if consecutive_errors > CIRCUIT_BREAKER_LIMIT:
+                        msg = f"CRITICAL_STOP: Consecutive error limit ({CIRCUIT_BREAKER_LIMIT}) exceeded at {datetime.now()}. Emergency Stop."
+                        logger.critical(msg)
+                        f.write(msg + "\n")
+                        print(msg)
+
+                        # Cancel remaining futures
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        return
+
+                    result = future.result()
+                    if result:
+                        url, error, is_critical = result
+                        log_msg = f"BROKEN: {url} | Error: {error}"
+                        print(log_msg)
+                        f.write(log_msg + "\n")
+                        broken_count += 1
+
+                        if is_critical:
+                            consecutive_errors += 1
+                        else:
+                            # Reset if it's a broken link but not a "critical" http error?
+                            # Prompt: "If the consecutive error count exceeds 50".
+                            # Usually means 50 errors in a row.
+                            # If we get a 404, that's an error.
+                            # If we get a 200 (None result), we reset.
+                            # So:
+                            consecutive_errors += 1
+                    else:
+                        # Success (None result)
+                        consecutive_errors = 0
+
+    except IOError as e:
+        logger.error(f"Failed to write to broken links log: {e}")
+
+    logger.info(f"Audit finished. Found {broken_count} broken links.")
+
+def main():
+    parser = argparse.ArgumentParser(description="FMHY Scraper Ecosystem")
+    parser.add_argument("--mode", choices=["scrape", "audit"], default="scrape", help="Operation mode")
+    args = parser.parse_args()
+
+    start_time = time.time()
+
+    # Ensure directories exist
+    os.makedirs(config.DAILY_DATA_DIR, exist_ok=True)
+    os.makedirs(config.THUMBNAILS_DIR, exist_ok=True)
+    os.makedirs(config.LOGS_DIR, exist_ok=True)
+
+    scraper = FMHYScraper()
+
+    if args.mode == "scrape":
+        run_scraper_mode(scraper)
+    elif args.mode == "audit":
+        run_audit_mode(scraper.session)
 
     elapsed = time.time() - start_time
     logger.info(f"Run completed in {elapsed:.2f} seconds.")
