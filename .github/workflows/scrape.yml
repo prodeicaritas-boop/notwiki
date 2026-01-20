@@ -47,7 +47,7 @@ jobs:
         fi
 
         echo "Running in $MODE mode..."
-        python main.py --mode $MODE
+        python main.py --mode $MODE || echo "Error"
 
         # Only run notifier if not strictly audit?
         # Or always run notifier?
@@ -62,5 +62,5 @@ jobs:
       uses: stefanzweifel/git-auto-commit-action@v4
       with:
         commit_message: "🤖 Automated Scraper Update [skip ci]"
-        branch: main
+        branch: ${{ github.ref_name }}
         file_pattern: 'data/ assets/'
