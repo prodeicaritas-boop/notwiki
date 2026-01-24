@@ -46,3 +46,69 @@ body {
     border-color: #ffd700;
     background: linear-gradient(45deg, rgba(255, 215, 0, 0.05), transparent);
 }
+
+/* Layout & Objects */
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+header {
+    text-align: center;
+    padding: 40px 0;
+    margin-bottom: 20px;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.card {
+    display: block;
+    text-decoration: none;
+    color: var(--text-primary);
+    padding: 25px;
+    border-radius: 16px;
+    transition: transform 0.2s ease, background 0.2s ease;
+    background: rgba(15, 25, 40, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+@supports (backdrop-filter: blur(1px)) {
+    .card {
+        background: var(--glass-surface);
+        backdrop-filter: blur(var(--glass-blur));
+        -webkit-backdrop-filter: blur(var(--glass-blur));
+        border: 1px solid var(--glass-border);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+    }
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.ad-card {
+    border-color: #ffd700;
+    background: linear-gradient(135deg, rgba(255, 215, 0, 0.05), transparent);
+}
+
+h2 {
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding-bottom: 10px;
+}
+
+.card h3 {
+    margin: 0 0 10px 0;
+    font-size: 1.2rem;
+}
+
+.card p {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
