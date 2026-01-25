@@ -1,53 +1,26 @@
 :root {
-    --bg-gradient: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
-    --glass-surface: rgba(255, 255, 255, 0.03);
-    --glass-border: rgba(255, 255, 255, 0.15);
-    --glass-blur: 20px;
+    --bg-void: #050505;
+    --blob-1: rgba(45, 212, 191, 0.2);
+    --blob-2: rgba(30, 58, 138, 0.25);
+    --card-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
     --text-primary: #ffffff;
-    --text-secondary: rgba(255, 255, 255, 0.7);
+    --text-secondary: #a1a1aa;
+    --accent: #2dd4bf;
 }
 
 body {
-    background: var(--bg-gradient);
+    background-color: var(--bg-void);
+    background-image:
+        url('data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noiseFilter%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.65%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noiseFilter)%22 opacity=%220.05%22/%3E%3C/svg%3E'),
+        radial-gradient(circle at 0% 0%, var(--blob-1), transparent 40%),
+        radial-gradient(circle at 100% 100%, var(--blob-2), transparent 40%);
     background-attachment: fixed;
     min-height: 100vh;
     margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     color: var(--text-primary);
 }
 
-.card {
-    display: block;
-    text-decoration: none;
-    color: var(--text-primary);
-    transition: transform 0.2s, background 0.2s;
-    padding: 20px;
-    border-radius: 12px;
-    background: rgba(15, 25, 40, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-@supports (backdrop-filter: blur(1px)) {
-    .card {
-        background: var(--glass-surface);
-        backdrop-filter: blur(var(--glass-blur));
-        -webkit-backdrop-filter: blur(var(--glass-blur));
-        border: 1px solid var(--glass-border);
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-    }
-}
-
-.card:hover {
-    transform: translateY(-5px);
-    background: rgba(255, 255, 255, 0.08);
-}
-
-.ad-card {
-    border-color: #ffd700;
-    background: linear-gradient(45deg, rgba(255, 215, 0, 0.05), transparent);
-}
-
-/* Layout & Objects */
 .container {
     max-width: 1200px;
     margin: 0 auto;
@@ -56,103 +29,107 @@ body {
 
 header {
     text-align: center;
-    padding: 40px 0;
-    margin-bottom: 20px;
+    padding: 60px 0 40px;
 }
 
 .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 20px;
+    gap: 24px;
 }
 
+/* The Stealth Cards */
 .card {
     display: block;
     text-decoration: none;
     color: var(--text-primary);
-    padding: 25px;
-    border-radius: 16px;
-    transition: transform 0.2s ease, background 0.2s ease;
-    background: rgba(15, 25, 40, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-@supports (backdrop-filter: blur(1px)) {
-    .card {
-        background: var(--glass-surface);
-        backdrop-filter: blur(var(--glass-blur));
-        -webkit-backdrop-filter: blur(var(--glass-blur));
-        border: 1px solid var(--glass-border);
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
-    }
+    background: rgba(20, 20, 25, 0.6);
+    border: none;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: var(--card-shadow), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
 }
 
 .card:hover {
-    transform: translateY(-5px);
-    background: rgba(255, 255, 255, 0.1);
+    transform: translateY(-2px);
+    background: rgba(30, 30, 35, 0.8);
+    box-shadow: var(--card-shadow), 0 10px 15px -3px rgba(45, 212, 191, 0.1);
 }
 
 .ad-card {
-    border-color: #ffd700;
-    background: linear-gradient(135deg, rgba(255, 215, 0, 0.05), transparent);
+    background: linear-gradient(135deg, rgba(20, 20, 25, 0.9), rgba(5, 5, 10, 1));
+    box-shadow: inset 0 0 0 1px rgba(255, 215, 0, 0.3), 0 4px 6px rgba(0,0,0,0.3);
 }
 
-h2 {
-    border-bottom: 1px solid rgba(255,255,255,0.1);
-    padding-bottom: 10px;
+.ad-card h2 {
+    color: #ffd700 !important;
 }
 
-.card h3 {
-    margin: 0 0 10px 0;
-    font-size: 1.2rem;
-}
-
-.card p {
-    color: var(--text-secondary);
-    font-size: 0.9rem;
-    line-height: 1.5;
-}
-
-/* Layout Finalization */
-.container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 20px;
-}
-
-header {
-    text-align: center;
-    padding: 40px 0;
-    margin-bottom: 20px;
-}
-
-.grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 20px;
-}
-
+/* Typography */
 h1 {
-    font-size: 2.5rem;
+    font-size: 3rem;
+    font-weight: 800;
     margin: 0;
-    font-weight: 700;
+    letter-spacing: -0.05em;
+    color: white; /* Safety fallback */
+    background: linear-gradient(to right, #ffffff, var(--accent));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 
 h2 {
-    border-bottom: 1px solid rgba(255,255,255,0.1);
-    padding-bottom: 10px;
-    margin-top: 40px;
+    margin-top: 50px;
     font-size: 1.5rem;
+    color: white;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 10px;
 }
 
-.card h3 {
-    margin: 0 0 10px 0;
-    font-size: 1.2rem;
-    font-weight: 600;
+/* Fix for card titles (which use h2 in build.py) to avoid huge margins */
+.card h2 {
+    margin-top: 0;
+    border-bottom: none;
+    padding-bottom: 0;
+    font-size: 1.25rem;
+    color: #f4f4f5;
 }
 
-.card p {
+h3 {
+    color: #f4f4f5;
+    margin: 0 0 8px 0;
+    font-size: 1.1rem;
+}
+
+p {
     color: var(--text-secondary);
-    font-size: 0.9rem;
-    line-height: 1.5;
+    line-height: 1.6;
+    font-size: 0.95rem;
+    margin-bottom: 1.5rem;
+}
+
+/* Links */
+.links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.links a {
+    color: var(--accent);
+    text-decoration: none;
+    border: 1px solid rgba(45, 212, 191, 0.3);
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+}
+
+.links a:hover {
+    background: var(--accent);
+    color: #000;
+    border-color: var(--accent);
 }
