@@ -1,135 +1,294 @@
+/* THEME: Abyssal Slate (Monochrome/Zinc)
+   ARCH: T-Structure (Sidebar Desktop / Pills Mobile)
+   VERSION: 1.0 Production
+*/
+
 :root {
-    --bg-void: #050505;
-    --blob-1: rgba(45, 212, 191, 0.2);
-    --blob-2: rgba(30, 58, 138, 0.25);
-    --card-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
-    --text-primary: #ffffff;
-    --text-secondary: #a1a1aa;
-    --accent: #2dd4bf;
+    /* --- PALETTE (Zinc Scale) --- */
+    --bg-void: #09090b;       /* Zinc 950 */
+    --bg-card: rgba(24, 24, 27, 0.6); /* Zinc 900 @ 60% */
+    --bg-card-hover: rgba(39, 39, 42, 0.7); /* Zinc 800 */
+    --border-dim: rgba(255, 255, 255, 0.05);
+    --border-light: rgba(255, 255, 255, 0.1);
+    --text-primary: #e4e4e7;  /* Zinc 200 */
+    --text-secondary: #a1a1aa; /* Zinc 400 */
+    --accent-glow: rgba(255, 255, 255, 0.4); /* The "Lipstick" Rim */
+    
+    /* --- DIMENSIONS --- */
+    --header-height: 70px;
+    --sidebar-width: 260px;
+    --container-max: 1600px;
+}
+
+/* --- RESET & BASE --- */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
 }
 
 body {
     background-color: var(--bg-void);
-    background-image:
-        url('data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noiseFilter%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.65%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noiseFilter)%22 opacity=%220.05%22/%3E%3C/svg%3E'),
-        radial-gradient(circle at 0% 0%, var(--blob-1), transparent 40%),
-        radial-gradient(circle at 100% 100%, var(--blob-2), transparent 40%);
-    background-attachment: fixed;
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
     min-height: 100vh;
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: var(--text-primary);
+    overflow-x: hidden;
 }
 
-.container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 20px;
+/* --- ATMOSPHERE (Noise & Phantom Light) --- */
+body::before {
+    content: "";
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: -1;
+    opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
 }
 
-header {
-    text-align: center;
-    padding: 60px 0 40px;
+/* Phantom Gradient Blobs */
+body::after {
+    content: "";
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: -2;
+    background: 
+        radial-gradient(circle at 10% 10%, rgba(255,255,255,0.03) 0%, transparent 40%),
+        radial-gradient(circle at 90% 60%, rgba(255,255,255,0.02) 0%, transparent 40%);
 }
 
-.grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 24px;
-}
-
-/* The Stealth Cards */
-.card {
-    display: block;
-    text-decoration: none;
-    color: var(--text-primary);
-    background: rgba(20, 20, 25, 0.6);
-    border: none;
-    border-radius: 12px;
-    padding: 24px;
-    box-shadow: var(--card-shadow), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-    transition: all 0.3s ease;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-}
-
-.card:hover {
-    transform: translateY(-2px);
-    background: rgba(30, 30, 35, 0.8);
-    box-shadow: var(--card-shadow), 0 10px 15px -3px rgba(45, 212, 191, 0.1);
-}
-
-.ad-card {
-    background: linear-gradient(135deg, rgba(20, 20, 25, 0.9), rgba(5, 5, 10, 1));
-    box-shadow: inset 0 0 0 1px rgba(255, 215, 0, 0.3), 0 4px 6px rgba(0,0,0,0.3);
-}
-
-.ad-card h2 {
-    color: #ffd700 !important;
-}
-
-/* Typography */
-h1 {
-    font-size: 3rem;
-    font-weight: 800;
-    margin: 0;
-    letter-spacing: -0.05em;
-    color: white; /* Safety fallback */
-    background: linear-gradient(to right, #ffffff, var(--accent));
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-
-h2 {
-    margin-top: 50px;
-    font-size: 1.5rem;
-    color: white;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    padding-bottom: 10px;
-}
-
-/* Fix for card titles (which use h2 in build.py) to avoid huge margins */
-.card h2 {
-    margin-top: 0;
-    border-bottom: none;
-    padding-bottom: 0;
-    font-size: 1.25rem;
-    color: #f4f4f5;
-}
-
-h3 {
-    color: #f4f4f5;
-    margin: 0 0 8px 0;
-    font-size: 1.1rem;
-}
-
-p {
-    color: var(--text-secondary);
-    line-height: 1.6;
-    font-size: 0.95rem;
-    margin-bottom: 1.5rem;
-}
-
-/* Links */
-.links {
+/* --- LAYOUT STRUCTURE --- */
+.app-shell {
     display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
+    flex-direction: column;
+    min-height: 100vh;
 }
 
-.links a {
-    color: var(--accent);
+.main-content {
+    flex: 1;
+    padding: 1.5rem;
+    width: 100%;
+    max-width: var(--container-max);
+    margin: 0 auto;
+}
+
+/* --- HEADER (Global) --- */
+.site-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(9, 9, 11, 0.8);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-dim);
+    height: var(--header-height);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 1.5rem;
+}
+
+.brand {
+    font-weight: 800;
+    font-size: 1.25rem;
+    letter-spacing: -0.05em;
+    color: #fff;
     text-decoration: none;
-    border: 1px solid rgba(45, 212, 191, 0.3);
-    padding: 6px 12px;
-    border-radius: 20px;
-    font-size: 0.85rem;
+}
+
+.search-container input {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border-dim);
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    color: #fff;
+    width: 200px;
     transition: all 0.2s ease;
 }
 
-.links a:hover {
-    background: var(--accent);
-    color: #000;
-    border-color: var(--accent);
+.search-container input:focus {
+    outline: none;
+    border-color: rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.08);
+    width: 280px;
+}
+
+/* --- NAVIGATION (Mobile Pills) --- */
+.mobile-nav {
+    position: sticky;
+    top: var(--header-height);
+    z-index: 99;
+    background: rgba(9, 9, 11, 0.95);
+    border-bottom: 1px solid var(--border-dim);
+    padding: 0.75rem 1rem;
+    overflow-x: auto;
+    white-space: nowrap;
+    -ms-overflow-style: none; /* Hide scrollbar IE */
+    scrollbar-width: none;    /* Hide scrollbar Firefox */
+}
+.mobile-nav::-webkit-scrollbar { display: none; }
+
+.nav-pill {
+    display: inline-block;
+    padding: 0.4rem 1rem;
+    margin-right: 0.5rem;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--border-dim);
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.nav-pill:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.1);
+}
+
+/* --- SIDEBAR (Desktop - Hidden by default) --- */
+.sidebar {
+    display: none; 
+}
+
+/* --- SECTION HEADERS --- */
+.section-header {
+    margin: 4rem 0 1.5rem 0;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-dim);
+    display: flex;
+    align-items: center;
+}
+
+.section-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+/* --- GRID & CARDS --- */
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1.5rem;
+}
+
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 12px;
+    padding: 1.5rem;
+    text-decoration: none;
+    transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+}
+
+/* The "White Fallout" Physics */
+.card:hover {
+    background: var(--bg-card-hover);
+    transform: translateY(-2px);
+    /* The Lipstick Rim: White top edge inner shadow */
+    box-shadow: inset 0 1px 0 0 var(--accent-glow); 
+    border-color: var(--border-light);
+}
+
+/* The Sheen Effect */
+.card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.03), transparent);
+    transition: left 0.5s;
+    pointer-events: none;
+}
+.card:hover::before {
+    left: 100%;
+}
+
+.card-title {
+    color: var(--text-primary);
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+.card:hover .card-title {
+    color: #fff;
+}
+
+.card-desc {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* --- AD CARD --- */
+.ad-card {
+    background: transparent;
+    border: 1px dashed var(--border-dim);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    min-height: 160px;
+}
+.ad-label {
+    color: var(--border-light);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+/* --- DESKTOP BREAKPOINT (T-Structure) --- */
+@media (min-width: 1024px) {
+    .mobile-nav { display: none; } /* Hide pills */
+    
+    .sidebar {
+        display: block;
+        position: fixed;
+        top: var(--header-height);
+        left: 0;
+        bottom: 0;
+        width: var(--sidebar-width);
+        border-right: 1px solid var(--border-dim);
+        overflow-y: auto;
+        padding: 2rem 0;
+        background: rgba(9, 9, 11, 0.5); /* Slight tint */
+    }
+    
+    .sidebar-link {
+        display: block;
+        padding: 0.5rem 1.5rem;
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-size: 0.95rem;
+        border-left: 2px solid transparent;
+    }
+    
+    .sidebar-link:hover {
+        color: #fff;
+        background: rgba(255,255,255,0.03);
+        border-left-color: rgba(255,255,255,0.5);
+    }
+    
+    .main-content {
+        margin-left: var(--sidebar-width); /* Push content right */
+        padding: 3rem;
+    }
+}
+
+/* --- LOW END OPTIMIZATION --- */
+@media (prefers-reduced-motion: reduce) {
+    body::before { display: none; } /* Kill noise */
+    .site-header { backdrop-filter: none; background: #09090b; }
+    .card:hover { transform: none; }
 }
