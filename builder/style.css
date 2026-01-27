@@ -1,27 +1,24 @@
-/* THEME: Obsidian Spotlight (Clean Glass)
-   ARCH: T-Structure
-   QUALITY: Ultra (No Low-End Optimizations)
-   VERSION: 3.0
+/* THEME: Abyssal Monolith (v4.0)
+   LAYOUT: True Center + Hidden Sidebar (Zen Default)
+   LIGHTING: The Lantern (Single Top Source)
 */
 
 :root {
     /* --- PALETTE --- */
     --bg-void: #050505;       /* Pure Deep Black */
-    --bg-spotlight: #1a1a1a;  /* The Light Source */
+    --lantern-color: rgba(228, 228, 231, 0.08); /* Moonlight Silver */
+    
     --glass-surface: rgba(255, 255, 255, 0.03);
     --glass-border: rgba(255, 255, 255, 0.08);
     --glass-highlight: rgba(255, 255, 255, 0.2);
+    
     --text-primary: #ededed;
     --text-secondary: #888888;
     
-    /* --- PHYSICS --- */
-    --blur-strength: 24px;    /* Ultra Blur */
-    --saturation: 180%;       /* Richness Boost */
-    
     /* --- DIMENSIONS --- */
     --header-height: 70px;
+    --container-max: 1400px; /* Tighter focus for retention */
     --sidebar-width: 280px;
-    --container-max: 1600px;
 }
 
 /* --- RESET & BASE --- */
@@ -36,28 +33,29 @@ body {
     background-color: var(--bg-void);
     color: var(--text-primary);
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    line-height: 1.5;
+    line-height: 1.6;
     min-height: 100vh;
     overflow-x: hidden;
 }
 
-/* --- THE BACKGROUND (The "Simple" Spotlight) --- */
+/* --- THE LANTERN (Background) --- */
 body::before {
     content: "";
     position: fixed;
-    top: -20%; left: 0; width: 100%; height: 80%;
+    top: -30vh; left: 0; right: 0;
+    height: 80vh;
     z-index: -1;
     pointer-events: none;
-    /* A subtle, massive light from the top center */
+    /* Massive, fluid, single light source from top */
     background: radial-gradient(
-        ellipse at 50% 0%, 
-        var(--bg-spotlight) 0%, 
-        transparent 70%
+        ellipse 60% 50% at 50% 0%, 
+        var(--lantern-color) 0%, 
+        transparent 100%
     );
-    opacity: 0.6;
+    opacity: 1; /* Variable controls opacity */
 }
 
-/* --- LAYOUT STRUCTURE --- */
+/* --- LAYOUT STRUCTURE (The Monolith) --- */
 .app-shell {
     display: flex;
     flex-direction: column;
@@ -66,11 +64,37 @@ body::before {
 
 .main-content {
     flex: 1;
-    padding: 1.5rem;
     width: 100%;
     max-width: var(--container-max);
+    margin: 0 auto; /* TRUE CENTER */
+    padding: 2rem 1.5rem;
+    position: relative;
+    z-index: 1;
+}
+
+/* --- HERO SECTION (Landing Page) --- */
+.hero {
+    text-align: center;
+    padding: 6rem 1rem 4rem 1rem;
+    margin-bottom: 2rem;
+    border-bottom: 1px solid var(--glass-border);
+}
+
+.hero h1 {
+    font-size: 3.5rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    background: linear-gradient(to bottom, #fff 20%, #888 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 1rem;
+}
+
+.hero p {
+    font-size: 1.2rem;
+    color: var(--text-secondary);
+    max-width: 600px;
     margin: 0 auto;
-    transition: margin-left 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* --- HEADER (Clean Glass) --- */
@@ -83,10 +107,8 @@ body::before {
     align-items: center;
     justify-content: space-between;
     padding: 0 1.5rem;
-    
-    /* Premium Glass Effect */
-    background: rgba(5, 5, 5, 0.7);
-    backdrop-filter: blur(var(--blur-strength)) saturate(var(--saturation));
+    background: rgba(5, 5, 5, 0.6);
+    backdrop-filter: blur(20px) saturate(180%);
     border-bottom: 1px solid var(--glass-border);
 }
 
@@ -113,77 +135,42 @@ body::before {
     letter-spacing: -0.02em;
     color: #fff;
     text-decoration: none;
-    opacity: 0.9;
 }
 
-/* --- SEARCH (Minimal Icon) --- */
-.search-wrapper {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.search-toggle-btn {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid var(--glass-border);
-    border-radius: 8px;
-    width: 40px; height: 40px;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all 0.2s;
-}
-.search-toggle-btn:hover {
-    background: rgba(255,255,255,0.1);
-    color: #fff;
-    border-color: var(--glass-highlight);
-}
-
-.search-input-container {
-    width: 0;
-    overflow: hidden;
-    opacity: 0;
-    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.search-input-container.active {
-    width: 280px;
-    opacity: 1;
-}
-
-.search-input-container input {
-    width: 100%;
-    background: rgba(0,0,0,0.5);
-    border: 1px solid var(--glass-border);
-    border-radius: 8px;
-    padding: 0.5rem 1rem;
-    color: #fff;
-    font-family: monospace;
-    font-size: 0.9rem;
-}
-.search-input-container input:focus {
-    outline: none;
-    border-color: var(--glass-highlight);
-    box-shadow: 0 0 20px rgba(255,255,255,0.05);
-}
-
-/* --- NAVIGATION (Mobile Pills) --- */
+/* --- NAVIGATION (Sticky Pills) --- */
+/* This is the primary nav now */
 .mobile-nav {
     position: sticky;
     top: var(--header-height);
     z-index: 99;
-    background: rgba(5, 5, 5, 0.85);
-    backdrop-filter: blur(var(--blur-strength));
+    background: rgba(5, 5, 5, 0.8);
+    backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--glass-border);
-    padding: 0.75rem 1rem;
+    padding: 0.75rem 0; /* Full width scroll area */
+    display: flex;
+    justify-content: center; /* Center the pills */
+}
+
+.nav-scroller {
+    display: flex;
     overflow-x: auto;
     white-space: nowrap;
+    padding: 0 1.5rem;
     scrollbar-width: none;
+    max-width: var(--container-max);
+    width: 100%;
+    /* On desktop, center the items. On mobile, let them scroll left */
+    justify-content: flex-start; 
 }
-.mobile-nav::-webkit-scrollbar { display: none; }
+@media (min-width: 768px) {
+    .nav-scroller { justify-content: center; }
+}
+
+.nav-scroller::-webkit-scrollbar { display: none; }
 
 .nav-pill {
     display: inline-block;
-    padding: 0.4rem 1rem;
+    padding: 0.4rem 1.2rem;
     margin-right: 0.5rem;
     border-radius: 99px;
     background: var(--glass-surface);
@@ -192,43 +179,50 @@ body::before {
     text-decoration: none;
     font-size: 0.85rem;
     transition: all 0.2s;
+    flex-shrink: 0;
 }
 .nav-pill:hover {
     color: #fff;
     background: rgba(255,255,255,0.1);
     border-color: var(--glass-highlight);
+    transform: translateY(-1px);
 }
 
-/* --- SIDEBAR (Desktop) --- */
+/* --- SIDEBAR (Hidden by Default) --- */
 .sidebar {
     position: fixed;
     top: var(--header-height);
     left: 0;
     bottom: 0;
     width: var(--sidebar-width);
+    background: rgba(5, 5, 5, 0.95); /* High opacity for readability */
+    backdrop-filter: blur(20px);
     border-right: 1px solid var(--glass-border);
+    transform: translateX(-100%); /* HIDDEN */
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    z-index: 200;
     overflow-y: auto;
     padding: 2rem 0;
-    /* Clean Blur Background */
-    background: rgba(5, 5, 5, 0.4); 
-    backdrop-filter: blur(var(--blur-strength));
-    transform: translateX(0);
-    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-    z-index: 90;
 }
 
-/* Zen Mode */
-body.zen-mode .sidebar { transform: translateX(-100%); }
-body.zen-mode .main-content { margin-left: 0; max-width: 1200px; }
+/* Open State */
+body.menu-open .sidebar {
+    transform: translateX(0);
+}
+/* Blur Content when Menu Open */
+body.menu-open .main-content {
+    filter: blur(8px);
+    opacity: 0.5;
+    pointer-events: none;
+}
 
 .sidebar-link {
     display: block;
-    padding: 0.7rem 2rem;
+    padding: 0.8rem 2rem;
     color: var(--text-secondary);
     text-decoration: none;
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     border-left: 2px solid transparent;
-    transition: all 0.2s;
 }
 .sidebar-link:hover {
     color: #fff;
@@ -238,56 +232,67 @@ body.zen-mode .main-content { margin-left: 0; max-width: 1200px; }
 
 /* --- SECTION HEADER --- */
 .section-header {
-    margin: 4rem 0 1.5rem 0;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--glass-border);
+    margin: 4rem 0 2rem 0;
+    text-align: center; /* Centered headers */
+    position: relative;
 }
+.section-header::after {
+    content: "";
+    display: block;
+    width: 60px;
+    height: 1px;
+    background: var(--glass-border);
+    margin: 1rem auto 0 auto;
+}
+
 .section-title {
-    font-size: 1.5rem;
+    font-size: 1.8rem;
     font-weight: 600;
     color: #fff;
     letter-spacing: -0.03em;
 }
 
-/* --- GRID & CARDS (The Cleaner Look) --- */
+/* --- GRID & CARDS --- */
 .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    /* Wider minimum width for better text readability */
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 1.5rem;
+    /* Center the grid items if there are few */
+    justify-content: center;
 }
 
 .card {
     background: var(--glass-surface);
     border: 1px solid var(--glass-border);
-    border-radius: 12px;
-    padding: 1.5rem;
+    border-radius: 16px; /* Softer corners */
+    padding: 1.75rem;
     text-decoration: none;
     transition: all 0.3s ease;
     display: flex;
     flex-direction: column;
-    /* Subtle inner shadow for depth */
-    box-shadow: inset 0 0 0 0 transparent;
+    position: relative;
+    overflow: hidden;
 }
 
 .card:hover {
-    background: rgba(255, 255, 255, 0.06);
-    transform: translateY(-2px);
+    background: rgba(255, 255, 255, 0.05);
+    transform: translateY(-4px);
     border-color: var(--glass-highlight);
-    /* Clean "Glow" without the heavy lipstick */
     box-shadow: 0 20px 40px -10px rgba(0,0,0,0.5);
 }
 
 .card-title {
     color: var(--text-primary);
-    font-size: 1.05rem;
+    font-size: 1.1rem;
     font-weight: 600;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.75rem;
 }
 .card:hover .card-title { color: #fff; }
 
 .card-desc {
     color: var(--text-secondary);
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     line-height: 1.6;
     display: -webkit-box;
     -webkit-line-clamp: 3;
@@ -295,34 +300,46 @@ body.zen-mode .main-content { margin-left: 0; max-width: 1200px; }
     overflow: hidden;
 }
 
-/* --- AD CARD (Minimal) --- */
+/* --- SEARCH (Icon Only) --- */
+.search-wrapper { display: flex; align-items: center; gap: 0.5rem; }
+
+.search-toggle-btn {
+    background: transparent;
+    border: none;
+    width: 40px; height: 40px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: color 0.2s;
+}
+.search-toggle-btn:hover { color: #fff; }
+
+.search-input-container {
+    width: 0; overflow: hidden; opacity: 0;
+    transition: all 0.3s ease;
+}
+.search-input-container.active { width: 200px; opacity: 1; }
+
+.search-input-container input {
+    width: 100%;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    padding: 0.4rem 0.8rem;
+    color: #fff;
+    font-size: 0.9rem;
+}
+.search-input-container input:focus { outline: none; border-color: #fff; }
+
+/* --- AD CARD --- */
 .ad-card {
     background: transparent;
     border: 1px dashed var(--glass-border);
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 12px;
+    border-radius: 16px;
     min-height: 150px;
-    opacity: 0.5;
-    transition: opacity 0.3s;
+    opacity: 0.4;
 }
-.ad-card:hover { opacity: 1; }
-.ad-label {
-    color: var(--text-secondary);
-    font-size: 0.75rem;
-    letter-spacing: 0.1em;
-}
-
-/* --- RESPONSIVE --- */
-@media (max-width: 1023px) {
-    .sidebar { transform: translateX(-100%); background: rgba(5,5,5,0.95); width: 100%; border: none;}
-    body.menu-open .sidebar { transform: translateX(0); }
-    body.menu-open .main-content { filter: blur(10px); }
-    .mobile-nav { display: block; }
-}
-
-@media (min-width: 1024px) {
-    .mobile-nav { display: none; }
-    .main-content { margin-left: var(--sidebar-width); }
-}
+.ad-label { color: var(--text-secondary); font-size: 0.75rem; letter-spacing: 0.1em; }
