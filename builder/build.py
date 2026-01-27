@@ -10,21 +10,17 @@ PUBLIC_DIR = "public"
 OUTPUT_FILE = os.path.join(PUBLIC_DIR, "index.html")
 
 # --- JS LOGIC ---
-# Q1A: Typewriter Active | Q3B: Icon Only handled in HTML
 JS_SCRIPT = """
 <script>
     document.addEventListener('DOMContentLoaded', () => {
-        // 1. HAMBURGER LOGIC
+        // 1. HAMBURGER TOGGLE (Sidebar)
         const menuBtn = document.getElementById('menuToggle');
         const body = document.body;
         
         if (menuBtn) {
             menuBtn.addEventListener('click', () => {
-                if (window.innerWidth >= 1024) {
-                    body.classList.toggle('zen-mode');
-                } else {
-                    body.classList.toggle('menu-open');
-                }
+                // Toggle the 'menu-open' class which slides the sidebar in
+                body.classList.toggle('menu-open');
             });
         }
 
@@ -42,8 +38,8 @@ JS_SCRIPT = """
             });
         }
 
-        // 3. TYPEWRITER EFFECT (Q1A: Dynamic)
-        const terms = ["Movies...", "AI Tools...", "Adblock...", "Linux ISOs...", "Streaming..."];
+        // 3. TYPEWRITER (Simple)
+        const terms = ["Privacy Tools...", "Linux ISOs...", "Streaming...", "AI Models..."];
         let termIndex = 0;
         let charIndex = 0;
         let isDeleting = false;
@@ -71,8 +67,7 @@ JS_SCRIPT = """
                 setTimeout(type, isDeleting ? 50 : 100);
             }
         }
-        
-        type(); // Always run (No Low-End check)
+        type();
     });
 </script>
 """
@@ -118,7 +113,15 @@ HEADER = """
     </header>
 """
 
-# --- UTILITY FUNCTIONS ---
+HERO_SECTION = """
+    <div class="hero">
+        <h1>The Abyssal Wiki</h1>
+        <p>A curated collection of free resources, privacy tools, and open-source software. 
+           Explore the depths of the digital world.</p>
+    </div>
+"""
+
+# --- UTILITY ---
 def get_latest_json():
     files = glob.glob(os.path.join(DATA_DIR, "*.json"))
     if not files: return None
@@ -130,11 +133,7 @@ def clean_key(key):
 def generate_id(key):
     return re.sub(r'[^a-z0-9]', '-', clean_key(key).lower())
 
-def process_affiliate_link(url):
-    # Q2B: BLOCKLIST REMOVED. All links allowed.
-    return url
-
-# --- BUILDER LOGIC ---
+# --- BUILDER ---
 def build_site():
     print("Starting build process...")
     json_file = get_latest_json()
@@ -145,22 +144,26 @@ def build_site():
     with open(json_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
-    # 1. NAVIGATION
-    sidebar_html = '<aside class="sidebar"><nav>'
-    mobile_pills_html = '<nav class="mobile-nav"><a href="#" class="nav-pill">All</a>'
-    
     categories = list(data.keys())
+
+    # 1. NAVIGATION (Pills & Sidebar)
+    # Note: Pills are now in a specific scroll container
+    sidebar_html = '<aside class="sidebar"><nav>'
+    pills_html = '<nav class="mobile-nav"><div class="nav-scroller"><a href="#" class="nav-pill">All</a>'
+    
     for cat in categories:
         clean = clean_key(cat)
         cid = generate_id(cat)
         sidebar_html += f'<a href="#{cid}" class="sidebar-link">{clean}</a>'
-        mobile_pills_html += f'<a href="#{cid}" class="nav-pill">{clean}</a>'
+        pills_html += f'<a href="#{cid}" class="nav-pill">{clean}</a>'
 
     sidebar_html += '</nav></aside>'
-    mobile_pills_html += '</nav>'
+    pills_html += '</div></nav>'
 
-    # 2. CONTENT
+    # 2. CONTENT LOOP
     content_html = '<main class="main-content">'
+    content_html += HERO_SECTION # Insert Hero at top of main
+
     for cat in categories:
         clean = clean_key(cat)
         cid = generate_id(cat)
@@ -171,8 +174,7 @@ def build_site():
 
         for i, item in enumerate(items):
             title = item.get('title', 'Untitled')
-            # Q2B: Affiliate links pass through directly
-            url = process_affiliate_link(item.get('url', '#'))
+            url = item.get('url', '#')
             desc = item.get('description', '')[:200]
             
             content_html += f"""
@@ -189,19 +191,19 @@ def build_site():
     
     content_html += '</main>'
 
-    # 3. ASSEMBLE (Using f-strings to avoid ValueError)
+    # 3. ASSEMBLE
     today = datetime.now().strftime("%Y-%m-%d")
     
     footer_html = f"""
-    </div> </div> <footer style="text-align:center; padding: 4rem; color: #52525b; font-size: 0.8rem;">
+    <footer style="text-align:center; padding: 4rem; color: #52525b; font-size: 0.8rem; border-top: 1px solid rgba(255,255,255,0.05); margin-top: 4rem;">
         Last Updated: {today}
     </footer>
-    {JS_SCRIPT}
+    </div> {sidebar_html} {JS_SCRIPT}
     </body>
     </html>
     """
 
-    final_html = HTML_HEAD + HEADER + mobile_pills_html + sidebar_html + content_html + footer_html
+    final_html = HTML_HEAD + HEADER + pills_html + content_html + footer_html
     
     os.makedirs(PUBLIC_DIR, exist_ok=True)
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
