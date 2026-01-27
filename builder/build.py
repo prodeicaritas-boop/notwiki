@@ -9,8 +9,8 @@ DATA_DIR = "data/daily"
 PUBLIC_DIR = "public"
 OUTPUT_FILE = os.path.join(PUBLIC_DIR, "index.html")
 
-# --- JS LOGIC (Embed for Performance) ---
-# Includes: Sidebar Toggle, Search Reveal, Placeholder Animation
+# --- JS LOGIC (Assumptions Pending User Validation) ---
+# NOTE: This script assumes a "Typewriter" effect and specific icons.
 JS_SCRIPT = """
 <script>
     document.addEventListener('DOMContentLoaded', () => {
@@ -18,35 +18,39 @@ JS_SCRIPT = """
         const menuBtn = document.getElementById('menuToggle');
         const body = document.body;
         
-        menuBtn.addEventListener('click', () => {
-            if (window.innerWidth >= 1024) {
-                // Desktop: Toggle Zen Mode (Collapse)
-                body.classList.toggle('zen-mode');
-            } else {
-                // Mobile: Toggle Overlay Menu
-                body.classList.toggle('menu-open');
-            }
-        });
+        if (menuBtn) {
+            menuBtn.addEventListener('click', () => {
+                if (window.innerWidth >= 1024) {
+                    body.classList.toggle('zen-mode');
+                } else {
+                    body.classList.toggle('menu-open');
+                }
+            });
+        }
 
         // 2. SEARCH REVEAL
         const searchBtn = document.getElementById('searchToggle');
         const searchContainer = document.getElementById('searchContainer');
         const searchInput = document.getElementById('searchInput');
 
-        searchBtn.addEventListener('click', () => {
-            searchContainer.classList.toggle('active');
-            if (searchContainer.classList.contains('active')) {
-                searchInput.focus();
-            }
-        });
+        if (searchBtn) {
+            searchBtn.addEventListener('click', () => {
+                searchContainer.classList.toggle('active');
+                if (searchContainer.classList.contains('active')) {
+                    searchInput.focus();
+                }
+            });
+        }
 
-        // 3. TYPEWRITER EFFECT (Placeholder)
+        // 3. TYPEWRITER EFFECT
+        // ASSUMPTION: You want these specific placeholder terms.
         const terms = ["Movies...", "AI Tools...", "Adblock...", "Linux ISOs...", "Streaming..."];
         let termIndex = 0;
         let charIndex = 0;
         let isDeleting = false;
         
         function type() {
+            if (!searchInput) return;
             const currentTerm = terms[termIndex];
             
             if (isDeleting) {
@@ -59,7 +63,7 @@ JS_SCRIPT = """
 
             if (!isDeleting && charIndex === currentTerm.length) {
                 isDeleting = true;
-                setTimeout(type, 2000); // Pause at end
+                setTimeout(type, 2000); 
             } else if (isDeleting && charIndex === 0) {
                 isDeleting = false;
                 termIndex = (termIndex + 1) % terms.length;
@@ -69,18 +73,17 @@ JS_SCRIPT = """
             }
         }
         
-        // Start typing if not reduced motion
+        // Low-End Optimization Check
         const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        if (!prefersReduced) {
+        if (!prefersReduced && searchInput) {
             type();
-        } else {
-            searchInput.placeholder = "Search resources...";
         }
     });
 </script>
 """
 
-HTML_HEAD = f"""<!DOCTYPE html>
+# --- HTML FRAGMENTS ---
+HTML_HEAD = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -121,15 +124,6 @@ HEADER = """
     </header>
 """
 
-FOOTER = f"""
-</div> </div> <footer style="text-align:center; padding: 4rem; color: #52525b; font-size: 0.8rem;">
-    Last Updated: {{date}}
-</footer>
-{JS_SCRIPT}
-</body>
-</html>
-"""
-
 # --- UTILITY FUNCTIONS ---
 def get_latest_json():
     files = glob.glob(os.path.join(DATA_DIR, "*.json"))
@@ -143,14 +137,18 @@ def generate_id(key):
     return re.sub(r'[^a-z0-9]', '-', clean_key(key).lower())
 
 def process_affiliate_link(url):
+    # ASSUMPTION: You only want to filter these specific keywords.
     if any(x in url for x in ["nordvpn", "surfshark", "proton"]):
         return "#affiliate-placeholder"
     return url
 
 # --- BUILDER LOGIC ---
 def build_site():
+    print("Starting build process...")
     json_file = get_latest_json()
-    if not json_file: return
+    if not json_file:
+        print("ERROR: No JSON found.")
+        return
 
     with open(json_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -191,6 +189,7 @@ def build_site():
             </a>
             """
             
+            # ASSUMPTION: Ad injection frequency is 6.
             if (i + 1) % 6 == 0:
                 content_html += '<div class="ad-card"><span class="ad-label">SPONSORED</span></div>'
         
@@ -198,8 +197,20 @@ def build_site():
     
     content_html += '</main>'
 
-    # 3. WRITE
-    final_html = HTML_HEAD + HEADER + mobile_pills_html + sidebar_html + content_html + FOOTER.format(date=datetime.now().strftime("%Y-%m-%d"))
+    # 3. ASSEMBLE (Using F-String Concatenation to avoid Conflict)
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    # We build the footer here dynamically
+    footer_html = f"""
+    </div> </div> <footer style="text-align:center; padding: 4rem; color: #52525b; font-size: 0.8rem;">
+        Last Updated: {today}
+    </footer>
+    {JS_SCRIPT}
+    </body>
+    </html>
+    """
+
+    final_html = HTML_HEAD + HEADER + mobile_pills_html + sidebar_html + content_html + footer_html
     
     os.makedirs(PUBLIC_DIR, exist_ok=True)
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
