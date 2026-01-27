@@ -9,8 +9,8 @@ DATA_DIR = "data/daily"
 PUBLIC_DIR = "public"
 OUTPUT_FILE = os.path.join(PUBLIC_DIR, "index.html")
 
-# --- JS LOGIC (Assumptions Pending User Validation) ---
-# NOTE: This script assumes a "Typewriter" effect and specific icons.
+# --- JS LOGIC ---
+# Q1A: Typewriter Active | Q3B: Icon Only handled in HTML
 JS_SCRIPT = """
 <script>
     document.addEventListener('DOMContentLoaded', () => {
@@ -42,8 +42,7 @@ JS_SCRIPT = """
             });
         }
 
-        // 3. TYPEWRITER EFFECT
-        // ASSUMPTION: You want these specific placeholder terms.
+        // 3. TYPEWRITER EFFECT (Q1A: Dynamic)
         const terms = ["Movies...", "AI Tools...", "Adblock...", "Linux ISOs...", "Streaming..."];
         let termIndex = 0;
         let charIndex = 0;
@@ -73,11 +72,7 @@ JS_SCRIPT = """
             }
         }
         
-        // Low-End Optimization Check
-        const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        if (!prefersReduced && searchInput) {
-            type();
-        }
+        type(); // Always run (No Low-End check)
     });
 </script>
 """
@@ -90,7 +85,7 @@ HTML_HEAD = """<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FMHY - The Abyssal Wiki</title>
     <link rel="stylesheet" href="../builder/style.css"> 
-    <meta name="theme-color" content="#09090b">
+    <meta name="theme-color" content="#050505">
 </head>
 <body>
 <div class="app-shell">
@@ -100,7 +95,7 @@ HEADER = """
     <header class="site-header">
         <div class="header-left">
             <button id="menuToggle" class="menu-btn" aria-label="Toggle Menu">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="3" y1="12" x2="21" y2="12"></line>
                     <line x1="3" y1="6" x2="21" y2="6"></line>
                     <line x1="3" y1="18" x2="21" y2="18"></line>
@@ -113,12 +108,11 @@ HEADER = """
             <div id="searchContainer" class="search-input-container">
                 <input type="text" id="searchInput" placeholder="Search...">
             </div>
-            <button id="searchToggle" class="search-toggle-btn">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <button id="searchToggle" class="search-toggle-btn" title="Search">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
-                <span>Find</span>
             </button>
         </div>
     </header>
@@ -137,9 +131,7 @@ def generate_id(key):
     return re.sub(r'[^a-z0-9]', '-', clean_key(key).lower())
 
 def process_affiliate_link(url):
-    # ASSUMPTION: You only want to filter these specific keywords.
-    if any(x in url for x in ["nordvpn", "surfshark", "proton"]):
-        return "#affiliate-placeholder"
+    # Q2B: BLOCKLIST REMOVED. All links allowed.
     return url
 
 # --- BUILDER LOGIC ---
@@ -179,6 +171,7 @@ def build_site():
 
         for i, item in enumerate(items):
             title = item.get('title', 'Untitled')
+            # Q2B: Affiliate links pass through directly
             url = process_affiliate_link(item.get('url', '#'))
             desc = item.get('description', '')[:200]
             
@@ -189,7 +182,6 @@ def build_site():
             </a>
             """
             
-            # ASSUMPTION: Ad injection frequency is 6.
             if (i + 1) % 6 == 0:
                 content_html += '<div class="ad-card"><span class="ad-label">SPONSORED</span></div>'
         
@@ -197,10 +189,9 @@ def build_site():
     
     content_html += '</main>'
 
-    # 3. ASSEMBLE (Using F-String Concatenation to avoid Conflict)
+    # 3. ASSEMBLE (Using f-strings to avoid ValueError)
     today = datetime.now().strftime("%Y-%m-%d")
     
-    # We build the footer here dynamically
     footer_html = f"""
     </div> </div> <footer style="text-align:center; padding: 4rem; color: #52525b; font-size: 0.8rem;">
         Last Updated: {today}
