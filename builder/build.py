@@ -9,8 +9,78 @@ DATA_DIR = "data/daily"
 PUBLIC_DIR = "public"
 OUTPUT_FILE = os.path.join(PUBLIC_DIR, "index.html")
 
-# --- HTML TEMPLATES ---
-HTML_HEAD = """<!DOCTYPE html>
+# --- JS LOGIC (Embed for Performance) ---
+# Includes: Sidebar Toggle, Search Reveal, Placeholder Animation
+JS_SCRIPT = """
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // 1. HAMBURGER LOGIC
+        const menuBtn = document.getElementById('menuToggle');
+        const body = document.body;
+        
+        menuBtn.addEventListener('click', () => {
+            if (window.innerWidth >= 1024) {
+                // Desktop: Toggle Zen Mode (Collapse)
+                body.classList.toggle('zen-mode');
+            } else {
+                // Mobile: Toggle Overlay Menu
+                body.classList.toggle('menu-open');
+            }
+        });
+
+        // 2. SEARCH REVEAL
+        const searchBtn = document.getElementById('searchToggle');
+        const searchContainer = document.getElementById('searchContainer');
+        const searchInput = document.getElementById('searchInput');
+
+        searchBtn.addEventListener('click', () => {
+            searchContainer.classList.toggle('active');
+            if (searchContainer.classList.contains('active')) {
+                searchInput.focus();
+            }
+        });
+
+        // 3. TYPEWRITER EFFECT (Placeholder)
+        const terms = ["Movies...", "AI Tools...", "Adblock...", "Linux ISOs...", "Streaming..."];
+        let termIndex = 0;
+        let charIndex = 0;
+        let isDeleting = false;
+        
+        function type() {
+            const currentTerm = terms[termIndex];
+            
+            if (isDeleting) {
+                searchInput.placeholder = currentTerm.substring(0, charIndex - 1);
+                charIndex--;
+            } else {
+                searchInput.placeholder = currentTerm.substring(0, charIndex + 1);
+                charIndex++;
+            }
+
+            if (!isDeleting && charIndex === currentTerm.length) {
+                isDeleting = true;
+                setTimeout(type, 2000); // Pause at end
+            } else if (isDeleting && charIndex === 0) {
+                isDeleting = false;
+                termIndex = (termIndex + 1) % terms.length;
+                setTimeout(type, 500);
+            } else {
+                setTimeout(type, isDeleting ? 50 : 100);
+            }
+        }
+        
+        // Start typing if not reduced motion
+        const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (!prefersReduced) {
+            type();
+        } else {
+            searchInput.placeholder = "Search resources...";
+        }
+    });
+</script>
+"""
+
+HTML_HEAD = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -25,131 +95,112 @@ HTML_HEAD = """<!DOCTYPE html>
 
 HEADER = """
     <header class="site-header">
-        <a href="#" class="brand">FMHY</a>
-        <div class="search-container">
-            <input type="text" placeholder="Search resources...">
+        <div class="header-left">
+            <button id="menuToggle" class="menu-btn" aria-label="Toggle Menu">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="3" y1="12" x2="21" y2="12"></line>
+                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                    <line x1="3" y1="18" x2="21" y2="18"></line>
+                </svg>
+            </button>
+            <a href="#" class="brand">FMHY</a>
         </div>
-        <div class="actions" style="opacity:0.5; font-size:0.9rem;">v2.0</div>
+        
+        <div class="search-wrapper">
+            <div id="searchContainer" class="search-input-container">
+                <input type="text" id="searchInput" placeholder="Search...">
+            </div>
+            <button id="searchToggle" class="search-toggle-btn">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <span>Find</span>
+            </button>
+        </div>
     </header>
 """
 
-FOOTER = """
+FOOTER = f"""
 </div> </div> <footer style="text-align:center; padding: 4rem; color: #52525b; font-size: 0.8rem;">
-    Last Updated: {date}
+    Last Updated: {{date}}
 </footer>
+{JS_SCRIPT}
 </body>
 </html>
 """
 
 # --- UTILITY FUNCTIONS ---
-
 def get_latest_json():
-    """Finds the most recent JSON file in data/daily."""
     files = glob.glob(os.path.join(DATA_DIR, "*.json"))
-    if not files:
-        print("CRITICAL ERROR: No data files found in data/daily/")
-        return None
-    # Sort by filename (date format YYYY-MM-DD ensures correct sort)
-    latest = max(files, key=os.path.getctime)
-    print(f"Loading data source: {latest}")
-    return latest
+    if not files: return None
+    return max(files, key=os.path.getctime)
 
 def clean_key(key):
-    """Removes invisible chars and spaces for ID generation."""
-    # Remove Zero Width Space (\u200b) and strip
-    cleaned = key.replace('\u200b', '').strip()
-    return cleaned
+    return key.replace('\u200b', '').strip()
 
 def generate_id(key):
-    """Converts a category name to a URL-safe ID."""
     return re.sub(r'[^a-z0-9]', '-', clean_key(key).lower())
 
 def process_affiliate_link(url):
-    """Swaps affiliate links (Placeholder Logic)."""
     if any(x in url for x in ["nordvpn", "surfshark", "proton"]):
         return "#affiliate-placeholder"
     return url
 
 # --- BUILDER LOGIC ---
-
 def build_site():
     json_file = get_latest_json()
-    if not json_file:
-        return
+    if not json_file: return
 
     with open(json_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
-    # 1. GENERATE NAVIGATION LISTS
+    # 1. NAVIGATION
     sidebar_html = '<aside class="sidebar"><nav>'
-    mobile_pills_html = '<nav class="mobile-nav">'
-    
-    # Add "All" button
-    mobile_pills_html += '<a href="#" class="nav-pill">All</a>'
+    mobile_pills_html = '<nav class="mobile-nav"><a href="#" class="nav-pill">All</a>'
     
     categories = list(data.keys())
-    
     for cat in categories:
-        clean_name = clean_key(cat)
-        cat_id = generate_id(cat)
-        
-        # Sidebar Link
-        sidebar_html += f'<a href="#{cat_id}" class="sidebar-link">{clean_name}</a>'
-        # Mobile Pill
-        mobile_pills_html += f'<a href="#{cat_id}" class="nav-pill">{clean_name}</a>'
+        clean = clean_key(cat)
+        cid = generate_id(cat)
+        sidebar_html += f'<a href="#{cid}" class="sidebar-link">{clean}</a>'
+        mobile_pills_html += f'<a href="#{cid}" class="nav-pill">{clean}</a>'
 
     sidebar_html += '</nav></aside>'
     mobile_pills_html += '</nav>'
 
-    # 2. GENERATE MAIN CONTENT
+    # 2. CONTENT
     content_html = '<main class="main-content">'
-    
     for cat in categories:
-        clean_name = clean_key(cat)
-        cat_id = generate_id(cat)
+        clean = clean_key(cat)
+        cid = generate_id(cat)
         items = data[cat]
-        
-        if not items: 
-            continue
+        if not items: continue
 
-        # Section Header
-        content_html += f"""
-        <div id="{cat_id}" class="section-header">
-            <h2 class="section-title">{clean_name}</h2>
-        </div>
-        <div class="grid">
-        """
+        content_html += f'<div id="{cid}" class="section-header"><h2 class="section-title">{clean}</h2></div><div class="grid">'
 
-        # Cards Loop
         for i, item in enumerate(items):
             title = item.get('title', 'Untitled')
             url = process_affiliate_link(item.get('url', '#'))
-            desc = item.get('description', '')[:200] # Truncate
-
-            # Card HTML
+            desc = item.get('description', '')[:200]
+            
             content_html += f"""
             <a href="{url}" target="_blank" class="card" rel="noopener">
                 <h3 class="card-title">{title}</h3>
                 <p class="card-desc">{desc}</p>
             </a>
             """
-
-            # Ad Injection (Every 6 cards)
+            
             if (i + 1) % 6 == 0:
-                content_html += """
-                <div class="ad-card">
-                    <span class="ad-label">SPONSORED</span>
-                </div>
-                """
+                content_html += '<div class="ad-card"><span class="ad-label">SPONSORED</span></div>'
         
-        content_html += "</div>" # End Grid
-
+        content_html += "</div>"
+    
     content_html += '</main>'
 
-    # 3. ASSEMBLE FULL HTML
+    # 3. WRITE
     final_html = HTML_HEAD + HEADER + mobile_pills_html + sidebar_html + content_html + FOOTER.format(date=datetime.now().strftime("%Y-%m-%d"))
-
-    # 4. WRITE TO FILE
+    
     os.makedirs(PUBLIC_DIR, exist_ok=True)
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
         f.write(final_html)
