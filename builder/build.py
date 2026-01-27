@@ -1,148 +1,160 @@
-import os
 import json
+import os
+import re
 import glob
-import datetime
+from datetime import datetime
 
-def main():
-    # Define paths relative to this script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    root_dir = os.path.dirname(script_dir)
-    data_dir = os.path.join(root_dir, 'data', 'daily')
-    public_dir = os.path.join(root_dir, 'public')
+# --- CONFIGURATION ---
+DATA_DIR = "data/daily"
+PUBLIC_DIR = "public"
+OUTPUT_FILE = os.path.join(PUBLIC_DIR, "index.html")
 
-    # Ensure public directory exists
-    os.makedirs(public_dir, exist_ok=True)
+# --- HTML TEMPLATES ---
+HTML_HEAD = """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FMHY - The Abyssal Wiki</title>
+    <link rel="stylesheet" href="../builder/style.css"> 
+    <meta name="theme-color" content="#09090b">
+</head>
+<body>
+<div class="app-shell">
+"""
 
-    # Find the most recent JSON file
-    json_files = glob.glob(os.path.join(data_dir, '*.json'))
-    if not json_files:
-        print(f"Error: No data files found in {data_dir}")
+HEADER = """
+    <header class="site-header">
+        <a href="#" class="brand">FMHY</a>
+        <div class="search-container">
+            <input type="text" placeholder="Search resources...">
+        </div>
+        <div class="actions" style="opacity:0.5; font-size:0.9rem;">v2.0</div>
+    </header>
+"""
+
+FOOTER = """
+</div> </div> <footer style="text-align:center; padding: 4rem; color: #52525b; font-size: 0.8rem;">
+    Last Updated: {date}
+</footer>
+</body>
+</html>
+"""
+
+# --- UTILITY FUNCTIONS ---
+
+def get_latest_json():
+    """Finds the most recent JSON file in data/daily."""
+    files = glob.glob(os.path.join(DATA_DIR, "*.json"))
+    if not files:
+        print("CRITICAL ERROR: No data files found in data/daily/")
+        return None
+    # Sort by filename (date format YYYY-MM-DD ensures correct sort)
+    latest = max(files, key=os.path.getctime)
+    print(f"Loading data source: {latest}")
+    return latest
+
+def clean_key(key):
+    """Removes invisible chars and spaces for ID generation."""
+    # Remove Zero Width Space (\u200b) and strip
+    cleaned = key.replace('\u200b', '').strip()
+    return cleaned
+
+def generate_id(key):
+    """Converts a category name to a URL-safe ID."""
+    return re.sub(r'[^a-z0-9]', '-', clean_key(key).lower())
+
+def process_affiliate_link(url):
+    """Swaps affiliate links (Placeholder Logic)."""
+    if any(x in url for x in ["nordvpn", "surfshark", "proton"]):
+        return "#affiliate-placeholder"
+    return url
+
+# --- BUILDER LOGIC ---
+
+def build_site():
+    json_file = get_latest_json()
+    if not json_file:
         return
 
-    latest_file = max(json_files, key=os.path.getctime)
-    print(f"Processing file: {latest_file}")
+    with open(json_file, 'r', encoding='utf-8') as f:
+        data = json.load(f)
 
-    try:
-        with open(latest_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON: {e}")
-        return
-    except Exception as e:
-        print(f"Error reading file: {e}")
-        return
+    # 1. GENERATE NAVIGATION LISTS
+    sidebar_html = '<aside class="sidebar"><nav>'
+    mobile_pills_html = '<nav class="mobile-nav">'
+    
+    # Add "All" button
+    mobile_pills_html += '<a href="#" class="nav-pill">All</a>'
+    
+    categories = list(data.keys())
+    
+    for cat in categories:
+        clean_name = clean_key(cat)
+        cat_id = generate_id(cat)
+        
+        # Sidebar Link
+        sidebar_html += f'<a href="#{cat_id}" class="sidebar-link">{clean_name}</a>'
+        # Mobile Pill
+        mobile_pills_html += f'<a href="#{cat_id}" class="nav-pill">{clean_name}</a>'
 
-    # HTML Header
-    html_content = [
-        "<!DOCTYPE html>",
-        "<html lang='en'>",
-        "<head>",
-        "    <meta charset='UTF-8'>",
-        "    <meta name='viewport' content='width=device-width, initial-scale=1.0'>",
-        "    <title>Daily Update</title>",
-        "    <link rel='stylesheet' href='style.css'>",
-        "</head>",
-        "<body>",
-        "    <div class='container'>",
-        "        <h1>Latest Updates</h1>",
-        "        <div class='grid'>"
-    ]
+    sidebar_html += '</nav></aside>'
+    mobile_pills_html += '</nav>'
 
-    items_list = []
-    if isinstance(data, list):
-        items_list = data
-    elif isinstance(data, dict):
-        # Flatten dictionary of lists
-        for category, items in data.items():
-            if isinstance(items, list):
-                items_list.extend(items)
-            elif isinstance(items, dict): # Should not happen based on JSON but for safety
-                 items_list.append(items)
-
-    item_count = 0
-
-    for item in items_list:
-        if not isinstance(item, dict):
+    # 2. GENERATE MAIN CONTENT
+    content_html = '<main class="main-content">'
+    
+    for cat in categories:
+        clean_name = clean_key(cat)
+        cat_id = generate_id(cat)
+        items = data[cat]
+        
+        if not items: 
             continue
 
-        item_count += 1
+        # Section Header
+        content_html += f"""
+        <div id="{cat_id}" class="section-header">
+            <h2 class="section-title">{clean_name}</h2>
+        </div>
+        <div class="grid">
+        """
 
-        # Extract fields (mapping from observed JSON structure)
-        # Observed: title, description, url
-        title = item.get('title', item.get('header', 'Untitled')).replace('\u200b', '')
-        desc = item.get('description', '').replace('\u200b', '')
+        # Cards Loop
+        for i, item in enumerate(items):
+            title = item.get('title', 'Untitled')
+            url = process_affiliate_link(item.get('url', '#'))
+            desc = item.get('description', '')[:200] # Truncate
 
-        # Normalize links
-        links = []
-        if 'url' in item:
-            links.append({'url': item['url'], 'text': 'Visit'})
-        elif 'links' in item:
-            # If it uses the other schema
-            links = item['links']
+            # Card HTML
+            content_html += f"""
+            <a href="{url}" target="_blank" class="card" rel="noopener">
+                <h3 class="card-title">{title}</h3>
+                <p class="card-desc">{desc}</p>
+            </a>
+            """
 
-        # Process Links for Affiliate Swap
-        processed_links_html = []
-
-        for link in links:
-            url = ""
-            label = "Visit"
-
-            if isinstance(link, dict):
-                url = link.get('url', '')
-                label = link.get('text', link.get('title', 'Visit'))
-            elif isinstance(link, str):
-                url = link
-
-            if not url:
-                continue
-
-            # Affiliate Swap
-            lower_url = url.lower()
-            if "nordvpn" in lower_url:
-                url = "#affiliate-nordvpn"
-            elif "proton" in lower_url:
-                url = "#affiliate-proton"
-            elif "surfshark" in lower_url:
-                url = "#affiliate-surfshark"
-
-            processed_links_html.append(f"<a href='{url}' target='_blank'>{label}</a>")
-
-        # Card HTML
-        html_content.append(f"""
-            <div class='card glass'>
-                <h2>{title}</h2>
-                <p>{desc}</p>
-                <div class='links'>
-                    {' '.join(processed_links_html)}
+            # Ad Injection (Every 6 cards)
+            if (i + 1) % 6 == 0:
+                content_html += """
+                <div class="ad-card">
+                    <span class="ad-label">SPONSORED</span>
                 </div>
-            </div>
-        """)
+                """
+        
+        content_html += "</div>" # End Grid
 
-        # Ad Injection every 6th item
-        if item_count % 6 == 0:
-            html_content.append("""
-                <div class='card glass ad-card'>
-                    <h2>Sponsored</h2>
-                    <p>Check out our partners for exclusive deals!</p>
-                </div>
-            """)
+    content_html += '</main>'
 
-    # Close HTML
-    html_content.extend([
-        "        </div>",
-        "    </div>",
-        "</body>",
-        "</html>"
-    ])
+    # 3. ASSEMBLE FULL HTML
+    final_html = HTML_HEAD + HEADER + mobile_pills_html + sidebar_html + content_html + FOOTER.format(date=datetime.now().strftime("%Y-%m-%d"))
 
-    # Write output
-    output_path = os.path.join(public_dir, 'index.html')
-    try:
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(html_content))
-        print(f"Successfully generated {output_path}")
-    except Exception as e:
-        print(f"Error writing output file: {e}")
+    # 4. WRITE TO FILE
+    os.makedirs(PUBLIC_DIR, exist_ok=True)
+    with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+        f.write(final_html)
+    
+    print(f"Build Complete: {OUTPUT_FILE}")
 
 if __name__ == "__main__":
-    main()
+    build_site()
